@@ -7,7 +7,7 @@
 // @license        gpl-3.0
 // @namespace      https://e9x.github.io/
 // @supportURL     https://e9x.github.io/kru/inv/
-// @extracted      Thu, 10 Jun 2026 22:09:38 GMT
+// @extracted      Thu, 10 Jun 2006 22:09:38 GMT
 // @match          *://krunker.io/*
 // @match          *://*.browserfps.com/*
 // @match          *://linkvertise.com/*
