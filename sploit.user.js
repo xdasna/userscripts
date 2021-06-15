@@ -10,7 +10,7 @@
 // @grant          GM_getValue
 // @source         https://github.com/y9x/webpack/
 // @supportURL     https://y9x.github.io/discord/
-// @extracted      Tue, 15 Jun 2021 00:00:57 GMT
+// @extracted      Tue, 15 Jun 2021 00:11:27 GMT
 // @match          *://krunker.io/*
 // @match          *://*.browserfps.com/*
 // @match          *://linkvertise.com/*
@@ -175,7 +175,7 @@ class API {
 		if(this.is_host(location, 'linkvertise.com') && location.pathname.match(/^\/\d+\//)){
 			var bypass = new LinkvertiseBypass();
 			
-			return bypass.setup(input_meta.discord);
+			return bypass.setup();
 		}else if(!this.is_host(location, 'krunker.io', 'browserfps.com') || location.pathname != '/')return;
 		
 		var entries = [...new URLSearchParams(location.search).entries()];
@@ -240,7 +240,7 @@ exports.api_url = 'https://api.sys32.dev/';
 exports.mm_url = 'https://matchmaker.krunker.io/';
 
 exports.is_frame = window != window.top;
-exports.extracted = 1623715257827;
+exports.extracted = 1623715887532;
 
 // .htaccess for ui testing
 exports.krunker = utils.is_host(location, 'krunker.io', 'browserfps.com') && ['/.htaccess', '/'].includes(location.pathname);
@@ -406,6 +406,10 @@ var Utils = __webpack_require__(/*! ./utils */ "../libs/utils.js"),
 
 class LinkvertiseBypass {
 	constructor(){
+		var interval = setInterval;
+		
+		eval('window').setInterval = (callback, delay) => interval(callback, delay == 1e3 ? 0 : delay);
+		
 		this.debug_redirect = false;
 		
 		this.beacon = new Set();
@@ -415,9 +419,9 @@ class LinkvertiseBypass {
 		
 		this.force_all_tasks = true;
 		
-		this.pick_tasks();
+		// this.pick_tasks();
 		
-		this.debug('Will do', this.will_do.length, 'tasks:', this.will_do);
+		// this.debug('Will do', this.will_do.length, 'tasks:', this.will_do);
 	}
 	debug_list(title, obj){
 		var props = [];
@@ -478,29 +482,10 @@ class LinkvertiseBypass {
 		
 		return ~~(Math.random() * ((max + 1) - min)) + min;
 	}
-	setup(discord){
+	setup(){
 		this.hook();
 		this.setup_beacon();
 		this.observe();
-		this.page_cover(discord);
-	}
-	page_cover(discord){
-		var UI = __webpack_require__(/*! ./ui */ "../libs/ui/index.js");
-		
-		UI.ready.then(() => new UI.Loading(discord));
-		
-		document.documentElement.style.overflow = 'hidden';
-		
-		var set_title = document.title;
-		
-		document.title = 'Krunker';
-		
-		Object.defineProperty(document, 'title', {
-			get: _ => set_title,
-			set: _ => set_title = _,
-			configurable: true,
-			enumerable: true,
-		});
 	}
 	is_done(){
 		return false;
@@ -573,12 +558,12 @@ class LinkvertiseBypass {
 	main(service){
 		this.is_done = service.isDone.bind(service);
 		
-		var meta;
+		/*var meta;
 		
 		Object.defineProperty(service, 'meta', {
 			get: _ => meta,
 			set: value => meta = Object.assign(value, this.meta),
-		});
+		});*/
 		
 		var oredir = service.redirect;
 
@@ -587,7 +572,7 @@ class LinkvertiseBypass {
 			
 			Promise.all(this.beacon).then(() => {
 				if(this.debug_redirect)this.debug_list(`Redirect called.`, {
-					Tasks: this.will_do.map(task => '\t' + task),
+					// Tasks: this.will_do.map(task => '\t' + task),
 					URLs: [...this.beacon].map(promise => promise.url).map(url => '\t' + url),
 					'Total time': performance.now() - this.start + ' MS',
 				});
