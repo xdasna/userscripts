@@ -23,7 +23,7 @@ a:hover {
 		</style>
 	</head>
 	<body>
-		<h3>Drag a cheat to your bookmarks bar then run the bookmark on <a href='https://krunker.io'>Krunker</a>.</h3>
+		<h3>Drag a cheat to your bookmark bar then run the bookmark on <a href='https://krunker.io'>Krunker</a>.</h3>
 		<div class='userscripts'>
 			<a href='https://y9x.github.io/userscripts/skidfest.user.js'>Skidfest</a>
 			<a href='https://y9x.github.io/userscripts/sploit.user.js'>Sploit</a>
@@ -33,7 +33,7 @@ a:hover {
 		<script>
 var add_ele = (node_name, parent, attributes = {}) =>  Object.assign(parent.appendChild(document.createElement(node_name)), attributes);;
 
-for(let node of document.querySelectorAll('.userscripts > a'))node.href = `javascript:if(!(['browserfps.com','krunker.io'].some(h=>location.hostname==h||location.hostname.endsWith('.'+h))))alert('Run this bookmarklet on Krunker');else{var r=new XMLHttpRequest();r.open('GET',${JSON.stringify(node.href)},false);r.send();var t=location.href,w=window.open(t),i=w.setInterval(_=>w.location.href.startsWith(t)&&(w.clearInterval(i),w.eval(r.responseText),location.href='about:blank'))}`;
+for(let node of document.querySelectorAll('.userscripts > a'))node.href = `javascript:if(!(['browserfps.com','krunker.io'].some(h=>location.hostname==h||location.hostname.endsWith('.'+h))))alert('Run this bookmarklet on Krunker');else{let r=new XMLHttpRequest();r.open('GET',${JSON.stringify(node.href)},false);r.send();let t=location.href,w=window.open(t),i=w.setInterval(_=>w.location.href.startsWith(t)&&(w.clearInterval(i),w.eval(r.responseText),location.href='about:blank'))}`;
 
 		</script>
 	</body>
