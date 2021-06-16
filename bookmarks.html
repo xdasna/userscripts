@@ -2,24 +2,25 @@
 <html>
 	<head>
 		<meta charset='utf8' />
+		<style>
+.userscripts {
+	display: flex;
+	flex-direction: column;
+}
+		</style>
 	</head>
 	<body>
+		<div class='userscripts'>
+			<a href='https://y9x.github.io/userscripts/skidfest.user.js'>Skidfest</a>
+			<a href='https://y9x.github.io/userscripts/sploit.user.js'>Sploit</a>
+			<a href='https://y9x.github.io/userscripts/junker.user.js'>Junker</a>
+			<a href='https://y9x.github.io/userscripts/dogeware.user.js'>Dogeware</a>
+		</div>
 		<script>
-var add_ele = (node_name, parent, attributes = {}) => {
-	if(node_name == 'text')return parent.appendChild(Object.assign(document.createTextNode(''), attributes));
-	
-	if(attributes.style != null && typeof attributes.style == 'object')attributes.style = this.css(attributes.style);
-	
-	return Object.assign(parent.appendChild(document.createElement(node_name)), attributes);
-};
+var add_ele = (node_name, parent, attributes = {}) =>  Object.assign(parent.appendChild(document.createElement(node_name)), attributes);;
 
-var scripts = {
-	Sploit: 'https://y9x.github.io/userscripts/sploit.user.js',
-};
+for(let node of document.querySelectorAll('.userscripts > a'))node.href = `javascript:if(!(['browserfps.com','krunker.io'].some(h=>location.hostname==h||location.hostname.endsWith('.'+h))))alert('Run this bookmarklet on Krunker');else{var r=new XMLHttpRequest();r.open('GET',${JSON.stringify(node.href)},false);r.send();var t=location.href,w=window.open(t),i=w.setInterval(_=>w.location.href.startsWith(t)&&(w.clearInterval(i),w.eval(r.responseText),location.href='about:blank'))}`;
 
-for(let script in scripts)add_ele('a', document.body, {
-	href: `javascript:var r=new XMLHttpRequest();r.open('GET',${JSON.stringify(script)},false);r.send();var t=location.href,w=window.open(t),i=w.setInterval(_=>w.location.href==t&&(w.clearInterval(i),w.eval(r.responseText),location.href='about:blank'))`,
-});
 		</script>
 	</body>
 </html>
