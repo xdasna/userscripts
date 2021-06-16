@@ -10,7 +10,7 @@
 // @grant          GM_getValue
 // @source         https://github.com/y9x/webpack/
 // @supportURL     https://y9x.github.io/discord/
-// @extracted      Tue, 15 Jun 2021 00:11:27 GMT
+// @extracted      Wed, 16 Jun 2021 23:11:59 GMT
 // @match          *://krunker.io/*
 // @match          *://*.browserfps.com/*
 // @match          *://linkvertise.com/*
@@ -30,24 +30,17 @@
 "use strict";
 
 
-var LinkvertiseBypass = __webpack_require__(/*! ./linkvertise */ "../libs/linkvertise.js");
+var DataStore = __webpack_require__(/*! ./datastore */ "../libs/datastore.js"),
+	store = new DataStore();
 
 class API {
-	constructor(matchmaker_url, api_url, storage){
+	constructor(matchmaker_url, api_url){
 		this.matchmaker = matchmaker_url,
 		this.api = /*CHANGE*/ false ? 0 : api_url,
 		
 		this.stacks = new Set();
 		
 		this.api_v2 = new URL('v2/', this.api);
-		
-		this.default_storage = {
-			get: key => localStorage.getItem('ss' + key),
-			set: (key, value) => localStorage.setItem('ss' + key, value),
-			default: true,
-		};
-		
-		this.storage = typeof storage == 'object' && storage != null ? storage : this.default_storage;
 		
 		this.meta = new Promise((resolve, reject) => {
 			this.meta_resolve = resolve;
@@ -172,20 +165,16 @@ class API {
 		return hosts.some(host => url.hostname == host || url.hostname.endsWith('.' + host));
 	}
 	async license(input_meta, input_key){
-		if(this.is_host(location, 'linkvertise.com') && location.pathname.match(/^\/\d+\//)){
-			var bypass = new LinkvertiseBypass();
-			
-			return bypass.setup();
-		}else if(!this.is_host(location, 'krunker.io', 'browserfps.com') || location.pathname != '/')return;
+		if(!this.is_host(location, 'krunker.io', 'browserfps.com') || location.pathname != '/')return;
 		
 		var entries = [...new URLSearchParams(location.search).entries()];
 		
 		if(entries.length == 1 && !entries[0][1]){
 			history.replaceState(null, null, '/');
-			this.storage.set('tgg', entries[0][0]);
+			store.set('tgg', entries[0][0]);
 		}
 		
-		var key = input_key || await this.storage.get('tgg');
+		var key = input_key || await store.get('tgg');
 		
 		var meta = await this.fetch({
 			target: this.api_v2,
@@ -240,7 +229,7 @@ exports.api_url = 'https://api.sys32.dev/';
 exports.mm_url = 'https://matchmaker.krunker.io/';
 
 exports.is_frame = window != window.top;
-exports.extracted = 1623715887532;
+exports.extracted = 1623885119440;
 
 // .htaccess for ui testing
 exports.krunker = utils.is_host(location, 'krunker.io', 'browserfps.com') && ['/.htaccess', '/'].includes(location.pathname);
@@ -273,7 +262,7 @@ exports.supported_store = exports.firefox ? 'firefox' : 'chrome';
 
 exports.addon_url = query => exports.firefox ? 'https://addons.mozilla.org/en-US/firefox/search/?q=' + encodeURIComponent(query) : 'https://chrome.google.com/webstore/search/' + encodeURI(query);
 
-var api = new API(exports.mm_url, exports.api_url, exports.store);
+var api = new API(exports.mm_url, exports.api_url);
 
 if(!exports.is_frame){
 	if(exports.krunker)api.observe();
@@ -344,6 +333,185 @@ module.exports = DataStore;
 
 /***/ }),
 
+/***/ "../libs/input.js":
+/*!************************!*\
+  !*** ../libs/input.js ***!
+  \************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+"use strict";
+
+
+var vars = __webpack_require__(/*! ./vars */ "../libs/vars.js"),
+	InputData = __webpack_require__(/*! ./inputdata */ "../libs/inputdata.js"),
+	{ Vector3 } = __webpack_require__(/*! ./space */ "../libs/space.js"),
+	{ api, utils } = __webpack_require__(/*! ./consts */ "../libs/consts.js");
+
+class Input {
+	constructor(cheat){
+		this.cheat = cheat;
+	}
+	push(array){
+		if(this.cheat.player && this.cheat.controls)try{
+			var data = new InputData(array);
+			
+			this.modify(data);
+			
+			InputData.previous = data;
+		}catch(err){
+			api.report_error('input', err);
+		}
+		
+		return array;
+	}
+	aim_input(rot, data){
+		data.xdir = rot.x * 1000;
+		data.ydir = rot.y * 1000;
+	}
+	aim_camera(rot, data){
+		// updating camera will make a difference next tick, update current tick with aim_input
+		this.cheat.controls[vars.pchObjc].rotation.x = rot.x;
+		this.cheat.controls.object.rotation.y = rot.y;
+		
+		this.aim_input(rot, data);
+	}
+	correct_aim(rot, data){
+		if(data.shoot)data.shoot = !this.cheat.player.shot;
+		
+		if(!data.reload && this.cheat.player.has_ammo && data.shoot && !this.cheat.player.shot)this.aim_input(rot, data);
+	}
+	enemy_sight(){
+		if(this.cheat.player.shot)return;
+		
+		var raycaster = new utils.three.Raycaster();
+		
+		raycaster.setFromCamera({ x: 0, y: 0 }, this.cheat.world.camera);
+		
+		if(this.cheat.player.aimed && raycaster.intersectObjects(this.cheat.game.players.list.map(ent => this.cheat.add(ent)).filter(ent => ent.can_target).map(ent => ent.obj), true).length)return true;
+	}
+	calc_rot(player){
+		var camera = utils.camera_world(),
+			target = player.aim_point;
+		
+		// target.add(player.velocity);
+		
+		var x_dire = utils.getXDire(camera.x, camera.y, camera.z, target.x, target.y
+			- this.cheat.player.jump_bob_y
+			, target.z)
+			- this.cheat.player.land_bob_y * 0.1
+			- this.cheat.player.recoil_y * vars.consts.recoilMlt,
+			y_dire = utils.getDir(camera.z, camera.x, target.z, target.x);
+		
+		return {
+			x: x_dire || 0,
+			y: y_dire || 0,
+		};
+	}
+	smooth(target, setup){
+		var x_ang = utils.getAngleDst(this.cheat.controls[vars.pchObjc].rotation.x, target.x),
+			y_ang = utils.getAngleDst(this.cheat.controls.object.rotation.y, target.y);
+		
+		// camChaseSpd used on .object
+		
+		return {
+			y: this.cheat.controls.object.rotation.y + y_ang * setup.speed,
+			x: this.cheat.controls[vars.pchObjc].rotation.x + x_ang * setup.turn,
+		};
+	}
+	bhop(data){
+		var status = this.cheat.config.player.bhop,
+			auto = status.startsWith('auto'),
+			key = status.startsWith('key'),
+			slide = status.endsWith('slide'),
+			jump = slide || status.endsWith('jump');
+		
+		if(!data.focused)return;
+		
+		if(jump && (auto || data.keys.Space)){
+			this.cheat.controls.keys[this.cheat.controls.binds.jump.val] ^= 1;
+			if(this.cheat.controls.keys[this.cheat.controls.binds.jump.val])this.cheat.controls.didPressed[this.cheat.controls.binds.jump.val] = 1;
+		}
+		
+		if(slide && (auto || data.keys.Space) && this.cheat.player.velocity.y < -0.02 && this.cheat.player.can_slide)setTimeout(() => this.cheat.controls.keys[this.cheat.controls.binds.crouch.val] = 0, 325), this.cheat.controls.keys[this.cheat.controls.binds.crouch.val] = 1;
+	}
+	modify(data){
+		// bhop
+		this.bhop(data);
+		
+		// auto reload
+		if(!this.cheat.player.has_ammo && (this.cheat.config.aim.status == 'auto' || this.cheat.config.aim.auto_reload))data.reload = true;
+		
+		// TODO: target once on aim
+		
+		data.could_shoot = this.cheat.player.can_shoot;
+		
+		var nauto = this.cheat.player.weapon_auto || this.cheat.player.weapon.burst || !data.shoot || !InputData.previous.could_shoot || !InputData.previous.shoot,
+			hitchance = (Math.random() * 100) < this.cheat.config.aim.hitchance,
+			can_target = this.cheat.config.aim.status == 'auto' || data.scope || data.shoot;
+		
+		if(this.cheat.player.weapon.burst)this.cheat.player.shot = this.cheat.player.did_shoot;
+		
+		if(can_target)this.cheat.target = this.cheat.pick_target();
+		
+		if(this.cheat.player.can_shoot)if(this.cheat.config.aim.status == 'trigger')data.shoot = this.enemy_sight() || data.shoot;
+		else if(this.cheat.config.aim.status != 'off' && this.cheat.target && this.cheat.player.health){
+			var rot = this.calc_rot(this.cheat.target);
+			
+			if(hitchance)if(this.cheat.config.aim.status == 'correction' && nauto)this.correct_aim(rot, data);
+			else if(this.cheat.config.aim.status == 'auto'){
+				if(this.cheat.player.can_aim)data.scope = 1;
+				
+				if(this.cheat.player.aimed)data.shoot = !this.cheat.player.shot;
+				
+				this.correct_aim(rot, data);
+			}
+			
+			if(this.cheat.config.aim.status == 'assist' && this.cheat.player.aim_press){
+				var smooth_map = {
+					// step: 2
+					// min: 0
+					// max: 1
+					0: 1, // off
+					0.2: 0.1, // instant
+					0.4: 0.07, // faster
+					0.6: 0.05, // fast
+					0.8: 0.03, // light
+					1: 0.01, // light
+				};
+				
+				let spd = smooth_map[this.cheat.config.aim.smooth] || (console.warn(this.cheat.config.aim.smooth, 'not registered'), 1);
+				
+				/*
+				50 => 0.005
+				
+				DEFAULT:
+				turn: 0.0022,
+				speed: 0.0012,
+				*/
+				
+				rot = this.smooth(rot, {
+					turn: spd,
+					speed: spd,
+				});
+				
+				this.aim_camera(rot, data);
+				
+				// offset aim rather than revert to any previous camera rotation
+				if(data.shoot && !this.cheat.player.shot && !hitchance)data.ydir = 0;
+			}
+		}
+		
+		if(this.cheat.player.can_shoot && data.shoot && !this.cheat.player.shot){
+			this.cheat.player.shot = true;
+			setTimeout(() => this.cheat.player.shot = false, this.cheat.player.weapon.rate + 2);
+		}
+	}
+};
+
+module.exports = Input;
+
+/***/ }),
+
 /***/ "../libs/inputdata.js":
 /*!****************************!*\
   !*** ../libs/inputdata.js ***!
@@ -353,24 +521,26 @@ module.exports = DataStore;
 "use strict";
 
 
-var vars = __webpack_require__(/*! ./vars */ "../libs/vars.js");
+var vars = __webpack_require__(/*! ./vars */ "../libs/vars.js"),
+	keys = {};
 
 class InputData {
 	constructor(array){
 		this.array = array;
+	}
+	get keys(){
+		return keys;
 	}
 	get focused(){
 		return document.pointerLockElement != null;
 	}
 };
 
-InputData.prototype.keys = {};
+document.addEventListener('keydown', event => keys[event.code] = true);
 
-window.addEventListener('keydown', event => InputData.prototype.keys[event.code] = true);
+document.addEventListener('keyup', event => delete keys[event.code]);
 
-window.addEventListener('keyup', event => delete InputData.prototype.keys[event.code]);
-
-window.addEventListener('blur', InputData.prototype.keys = {});
+window.addEventListener('blur', () => keys = {});
 
 InputData.previous = {};
 
@@ -389,252 +559,289 @@ for(let prop in vars.keys){
 
 module.exports = InputData;
 
+window.InputData = InputData;
+
 /***/ }),
 
-/***/ "../libs/linkvertise.js":
-/*!******************************!*\
-  !*** ../libs/linkvertise.js ***!
-  \******************************/
+/***/ "../libs/player.js":
+/*!*************************!*\
+  !*** ../libs/player.js ***!
+  \*************************/
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-// utils.wait_for
-var Utils = __webpack_require__(/*! ./utils */ "../libs/utils.js"),
-	utils = new Utils();
+var vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
+	{ utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js"),
+	{ Vector3, Hex } = __webpack_require__(/*! ../libs/space */ "../libs/space.js"),
+	random_target = 0;
 
-class LinkvertiseBypass {
-	constructor(){
-		var interval = setInterval;
+setInterval(() => random_target = Math.random(), 2000);
+
+class Player {
+	constructor(cheat, entity){
+		this.cheat = cheat;
+		this.entity = typeof entity == 'object' && entity != null ? entity : {};
+		this.velocity = new Vector3();
+		this.position = new Vector3();
+		this.esp_hex = new Hex();
+		this.hp_hex = new Hex();
 		
-		eval('window').setInterval = (callback, delay) => interval(callback, delay == 1e3 ? 0 : delay);
-		
-		this.debug_redirect = false;
-		
-		this.beacon = new Set();
-		
-		this.debug = console.debug;
-		this.start = performance.now();
-		
-		this.force_all_tasks = true;
-		
-		// this.pick_tasks();
-		
-		// this.debug('Will do', this.will_do.length, 'tasks:', this.will_do);
-	}
-	debug_list(title, obj){
-		var props = [];
-		
-		for(let prop in obj){
-			let sub_str = `${prop}:\n`;
-			
-			let lines = [];
-			
-			for(let item of [].concat(obj[prop]))lines.push('\t' + item);
-			
-			sub_str += lines.join('\n');
-			
-			props.push(sub_str);
-		}
-		
-		this.debug(`${title}\n\n${props.join('\n\n')}`);
-	}
-	pick_tasks(){
-		// video gives no impressions 6/14/2021
-		var tasks = [ 'web', /*'video',*/ 'addon', 'notifications' ],
-			amount = this.random(2, tasks.length);
-		
-		this.meta = {
-			require_countdown: false,
-			require_captcha: false,
-			require_og_ads: false,
-			shouldPromoteOpera: true,
+		this.parts = {
+			hitbox_head: new Vector3(),
+			head: new Vector3(),
+			torso: new Vector3(),
+			legs: new Vector3(),
 		};
-		
-		this.will_do = [];
-		
-		if(this.force_all_tasks){
-			for(let task of tasks)this.will_do.push(task), this.meta['require_' + task] = true;
-			
-			return;
-		}
-		
-		for(let task of tasks)this.meta['require_' + task] = false;
-		
-		while((amount -= 1) != -1)while(true){
-			let task = this.random(tasks),
-				id = 'require_' + task;
-			
-			if(this.meta[id])continue;
-			
-			this.meta[id] = true;
-			
-			will_do.push(task);
-			
-			break;
-		}
 	}
-	random(min, max){
-		if(Array.isArray(min))return min[~~(Math.random() * min.length)];
+	get distance_scale(){
+		var world_pos = utils.camera_world();
 		
-		if(isNaN(max))return Math.random() * (min + 1);
+		return Math.max(.3, 1 - utils.getD3D(world_pos.x, world_pos.y, world_pos.z, this.x, this.y, this.z) / 600);
+	}
+	calc_rect(){
+		let playerScale = (2 * vars.consts.armScale + vars.consts.chestWidth + vars.consts.armInset) / 2;
+		let xmin = Infinity;
+		let xmax = -Infinity;
+		let ymin = Infinity;
+		let ymax = -Infinity;
+		let position = null;
+		let broken = false;
 		
-		return ~~(Math.random() * ((max + 1) - min)) + min;
-	}
-	setup(){
-		this.hook();
-		this.setup_beacon();
-		this.observe();
-	}
-	is_done(){
-		return false;
-	}
-	hook(){
-		var self = this;
-		
-		Object.defineProperty(Object.prototype, 'ogadsCountdown', {
-			set(value){
-				Object.defineProperty(this, 'ogadsCountdown', { value: value, configurable: true });
-				
-				self.main(this);
-				self.linkvertise(this.linkvertiseService);
-				self.adblock(this.adblockService);
-				self.web(this.webService);
-				self.addon(this.addonService);
-				self.video(this.videoService);
-				self.notifications(this.notificationsService);
-				
-				return value;
-			},
-			configurable: true,
-		});
-	}
-	observe(){
-		new MutationObserver(async mutations => {
-			for(let mutation of mutations){
-				for(let node of mutation.addedNodes){
-					if(node.rel == 'icon')node.href = 'https://krunker.io/img/favicon.png';
-					
-					if(!node.classList)continue;
-					
-					let is_progress = node.tagName == 'A',
-						is_access = is_progress && node.textContent.includes('Free Access'),
-						is_continue = is_progress && !node.classList.contains('d-none') && node.textContent.includes('Continue'),
-						is_todo = node.classList.contains('todo');
-					
-					if(is_todo || is_continue || is_access){
-						if(is_continue)await utils.wait_for(() => this.is_done());
-						node.click();
+		for(let var1 = -1; !broken && var1 < 2; var1+=2){
+			for(let var2 = -1; !broken && var2 < 2; var2+=2){
+				for(let var3 = 0; !broken && var3 < 2; var3++){
+					if (position = this.obj.position.clone()) {
+						position.x += var1 * playerScale;
+						position.z += var2 * playerScale;
+						position.y += var3 * (this.height - this.crouch * vars.consts.crouchDst);
+						if(!utils.contains_point(position)){
+							broken = true;
+							break;
+						}
+						position.project(this.cheat.world.camera);
+						xmin = Math.min(xmin, position.x);
+						xmax = Math.max(xmax, position.x);
+						ymin = Math.min(ymin, position.y);
+						ymax = Math.max(ymax, position.y);
 					}
 				}
 			}
-		}).observe(document, { childList: true, subtree: true });
-	}
-	setup_beacon(){
-		// navigator.beacon should have been used for impressions
-		XMLHttpRequest.prototype.open = new Proxy(XMLHttpRequest.prototype.open, {
-			apply: (target, request, [ method, url, ...args ]) => {
-				try{
-					let furl = new URL(url, location);
-					
-					if(furl.host == 'publisher.linkvertise.com'){
-						let promise = new Promise(resolve => request.addEventListener('readystatechange', () => {
-							if(request.readyState >= XMLHttpRequest.HEADERS_RECEIVED)resolve();
-						}));
-						
-						promise.url = furl.pathname;
-						
-						this.beacon.add(promise);
-					}
-				}catch(err){
-					console.error(err);
-				}
-				
-				return Reflect.apply(target, request, [ method, url, ...args ]);
-			}
-		});
-	}
-	main(service){
-		this.is_done = service.isDone.bind(service);
-		
-		/*var meta;
-		
-		Object.defineProperty(service, 'meta', {
-			get: _ => meta,
-			set: value => meta = Object.assign(value, this.meta),
-		});*/
-		
-		var oredir = service.redirect;
+		}
 
-		service.redirect = () => {
-			service.link.type = 'DYNAMIC';
-			
-			Promise.all(this.beacon).then(() => {
-				if(this.debug_redirect)this.debug_list(`Redirect called.`, {
-					// Tasks: this.will_do.map(task => '\t' + task),
-					URLs: [...this.beacon].map(promise => promise.url).map(url => '\t' + url),
-					'Total time': performance.now() - this.start + ' MS',
-				});
-				else oredir.call(service)
-			});
-		};
-	}
-	notifications(service){
-		var notif_level = 'default';
-
-		service.getPermissionLevel = () => notif_level;
-
-		service.ask = () => {
-			notif_level = 'granted';
-			service.linkvertiseService.postAction('notification');
-		};
-	}
-	adblock(service){
-		Object.defineProperty(service, 'adblock', {
-			get: _ => false,
-			set: _ => _,
-		});
-	}
-	video(service){
-		service.addPlayer = () => {
-			if(service.videoState != 'PENDING')return;
-			service.videoState = 'DONE';
-		};
-	}
-	addon(service){
-		var addon_installed = false;
-
-		service.alreadyInstalled = addon_installed;
-		service.addonIsInstalled = () => addon_installed;
-		service.handleAddon = () => {
-			if(service.addonState != 'PENDING')return;
-			addon_installed = true;
-			service.addonState = 'PENDING_USER';
-			service.checkAddon();
-		};
-	}
-	linkvertise(service){
-		Object.defineProperty(service, 'vpn', {
-			get: _ => false,
-			set: _ => _,
-			configurable: true,
-		});
-	}
-	web(service){
-		var ohandl = service.handleWeb.bind(service);
+		// if(broken)continue;
 		
-		service.handleWeb =  () => {
-			if(service.webState != 'PENDING')return;
-			ohandl();
-			service.pauseCountdown = false;
-			service.webCounter = 0;
-			service.handleWebClose();
+		xmin = (xmin + 1) / 2;
+		xmax = (xmax + 1) / 2;
+		
+		ymin = (ymin + 1) / 2;
+		ymax = (ymax + 1) / 2;
+		
+		ymin = -(ymin - 0.5) + 0.5;
+		ymax = -(ymax - 0.5) + 0.5;
+		
+		xmin *= utils.canvas.width;
+		xmax *= utils.canvas.width;
+		ymin *= utils.canvas.height;
+		ymax *= utils.canvas.height;
+		
+		var obj = {
+			left: xmin,
+			top: ymax,
+			right: xmax,
+			bottom: ymin,
+			width: xmax - xmin,
+			height: ymin - ymax,
 		};
+		
+		obj.x = obj.left + obj.width / 2;
+		obj.y = obj.top + obj.height / 2;
+		
+		return obj;
+	}
+	scale_rect(sx, sy){
+		var out = {},
+			horiz = [ 'y', 'height', 'top', 'bottom' ];
+		
+		for(var key in this.rect)out[key] = this.rect[key] / (horiz.includes(key) ? sy : sx);
+		
+		return out;
+	}
+	calc_in_fov(){
+		if(!this.active)return false;
+		if(this.cheat.config.aim.fov == 110)return true;
+		if(!this.frustum)return false;
+		
+		var fov_bak = utils.world.camera.fov;
+		
+		// config fov is percentage of current fov
+		utils.world.camera.fov = this.cheat.config.aim.fov / fov_bak * 100;
+		utils.world.camera.updateProjectionMatrix();
+		
+		utils.update_frustum();
+		var ret = utils.contains_point(this.aim_point);
+		
+		utils.world.camera.fov = fov_bak;
+		utils.world.camera.updateProjectionMatrix();
+		utils.update_frustum();
+		
+		return ret;
+	}
+	get can_target(){
+		return this.active && this.can_see && this.enemy && this.in_fov;
+	}
+	get ping(){ return this.entity.ping }
+	get jump_bob_y(){ return this.entity.jumpBobY }
+	get clan(){ return this.entity.clan }
+	get alias(){ return this.entity.alias }
+	get weapon(){ return this.entity.weapon }
+	get weapon_auto(){ return !this.weapon.nAuto }
+	get can_slide(){ return this.entity.canSlide }
+	get risk(){ return this.entity.level >= 30 || this.entity.account && (this.entity.account.featured || this.entity.account.premiumT) }
+	get is_you(){ return this.entity[vars.isYou] }
+	get target(){
+		return this.cheat.target && this.entity == this.cheat.target.entity;
+	}
+	get can_melee(){
+		return this.weapon.melee && this.cheat.target && this.cheat.target.active && this.position.distance_to(this.cheat.target) <= 18 || false;
+	}
+	get reloading(){
+		// reloadTimer in var randomization array
+		return this.entity.reloadTimer != 0;
+	}
+	get can_aim(){
+		return !this.can_melee;
+	}
+	get can_throw(){
+		return this.entity.canThrow && this.weapon.canThrow;
+	}
+	get aimed(){
+		var aim_val = this.can_throw
+			? 1 - this.entity.chargeTime / this.entity.throwCharge
+			: this.weapon.melee ? 1 : this.entity[vars.aimVal];
+		
+		return this.weapon.noAim || aim_val == 0 || this.can_melee || false;
+	}
+	get can_shoot(){
+		return !this.reloading && this.has_ammo && (this.can_throw || !this.weapon.melee || this.can_melee);
+	}
+	get aim_press(){ return this.cheat.controls[vars.mouseDownR] || this.cheat.controls.keys[this.cheat.controls.binds.aim.val] }
+	get crouch(){ return this.entity[vars.crouchVal] || 0 }
+	get box_scale(){
+		var view = utils.camera_world(),	
+			a = side => Math.min(1, (this.rect[side] / utils.canvas[side]) * 10);
+		
+		return [ a('width'), a('height') ];
+	}
+	get dist_scale(){
+		var view = utils.camera_world(),	
+			scale = Math.max(0.65, 1 - utils.getD3D(view.x, view.y, view.z, this.position.x, this.position.y, this.position.z) / 600);
+		
+		return [ scale, scale ];
+	}
+	get distance_camera(){
+		return utils.camera_world().distanceTo(this.position);
+	}
+	get obj(){ return this.is_ai ? this.enity.dat : this.entity[vars.objInstances] }
+	get land_bob_y(){ return this.entity.landBobY || 0 }
+	get recoil_y(){ return this.entity[vars.recoilAnimY] || 0 }
+	get has_ammo(){ return this.ammo || this.ammo == this.max_ammo }
+	get ammo(){ return this.entity[vars.ammos][this.entity[vars.weaponIndex]] || 0 }
+	get max_ammo(){ return this.weapon.ammo || 0 }
+	get height(){ return this.entity.height || 0 } // (this.entity.height || 0) - this.crouch * 3 }
+	get health(){ return this.entity.health || 0 }
+	get scale(){ return this.entity.scale }
+	get max_health(){ return this.entity[vars.maxHealth] || 100 }
+	//  && (this.is_you ? true : this.chest && this.leg)
+	get active(){ return this.entity.active && this.entity.x != null && this.health > 0 && (this.is_you ? true : this.chest && this.leg) && true }
+	get teammate(){ return this.is_you || this.cheat.player && this.team && this.team == this.cheat.player.team }
+	get enemy(){ return !this.teammate }
+	get team(){ return this.entity.team }
+	get streaks(){ return Object.keys(this.entity.streaks || {}) }
+	get did_shoot(){ return this.entity[vars.didShoot] }
+	get chest(){
+		return this.entity.lowerBody ? this.entity.lowerBody.children[0] : null;
+	}
+	get leg(){
+		for(var mesh of this.entity.legMeshes)if(mesh.visible)return mesh;
+		return this.chest;
+	}
+	tick(){
+		this.position.set(this.entity.x, this.entity.y, this.entity.z);
+		this.velocity.set(this.entity.xVel, this.entity.yVel, this.entity.zVel);
+		
+		this.parts.hitbox_head.copy(this.position).set_y(this.position.y + this.height - (this.crouch * vars.consts.crouchDst));
+		
+		if(this.is_you)return;
+		
+		var head_size = 1.5,
+			chest_box = new utils.three.Box3().setFromObject(this.chest),
+			chest_size = chest_box.getSize(),
+			chest_pos = chest_box.getCenter();
+		
+		// parts centered
+		this.parts.torso.copy(chest_pos).translate_quaternion(this.chest.getWorldQuaternion(), new Vector3().copy({
+			x: 0,
+			y: -head_size / 2,
+			z: 0,
+		}));
+		
+		this.parts.torso_height = chest_size.y - head_size;
+		
+		this.parts.head.copy(chest_pos).translate_quaternion(this.chest.getWorldQuaternion(), new Vector3().copy({
+			x: 0,
+			y: this.parts.torso_height / 2,
+			z: 0,
+		}));
+		
+		var leg_pos = this.leg[vars.getWorldPosition](),
+			leg_scale = this.leg.getWorldScale();
+		
+		this.parts.legs = new Vector3().copy(leg_pos).translate_quaternion(this.leg.getWorldQuaternion(), new Vector3().copy({
+			x: -leg_scale.x / 2,
+			y: -leg_scale.y / 2,
+			z: 0,
+		}));
+		
+		var keys = [ 'head', 'torso', 'legs' ];
+		
+		var part = this.cheat.config.aim.offset == 'random' ? keys[~~(random_target * keys.length)] : this.cheat.config.aim.offset;
+		
+		this.aim_point = part == 'head' ? this.parts.hitbox_head : (this.parts[part] || (console.error(part, 'not registered'), Vector3.Blank));
+		
+		this.frustum = utils.contains_point(this.aim_point);
+		this.in_fov = this.calc_in_fov();
+		
+		this.rect = this.calc_rect();
+		
+		this.world_pos = this.active ? this.obj[vars.getWorldPosition]() : { x: 0, y: 0, z: 0 };
+		
+		var camera_world = utils.camera_world();
+		
+		this.can_see = this.cheat.player &&
+			utils.obstructing(camera_world, this.aim_point, (!this.cheat.player || this.cheat.player.weapon && this.cheat.player.weapon.pierce) && this.cheat.config.aim.wallbangs)
+		== null ? true : false;
+		
+		this.esp_hex.set_style(this.cheat.config.esp.rainbow ? this.cheat.overlay.rainbow.col : this.cheat.config.color[this.enemy ? this.risk ? 'risk' : 'hostile' : 'friendly']);
+		
+		if(!this.can_see)this.esp_hex.sub_scalar(0x77);
+		
+		
+		this.esp_color = this.esp_hex.toString();
+		
+		var hp_perc = (this.health / this.max_health) * 100,
+			hp_red = hp_perc < 50 ? 255 : Math.round(510 - 5.10 * hp_perc),
+			hp_green = hp_perc < 50 ? Math.round(5.1 * hp_perc) : 255,
+			hp_blue = 0;
+
+		this.hp_hex.set(hp_red, hp_green, hp_blue);
+		
+		this.hp_color = this.hp_hex.toString();
 	}
 };
 
-module.exports = LinkvertiseBypass;
+module.exports = Player;
 
 /***/ }),
 
@@ -798,6 +1005,55 @@ class Vector3 {
 
 Vector3.Blank = new Vector3();
 
+class Hex {
+	constructor(string = '#000'){
+		this.hex = [ 0, 0, 0 ];
+		this.set_style(string);
+	}
+	add_scalar(scalar){
+		for(let ind in this.hex)this.hex[ind] += scalar;
+		return this.normalize();
+	}
+	sub_scalar(scalar){
+		for(let ind in this.hex)this.hex[ind] -= scalar;
+		return this.normalize();
+	}
+	normalize(){
+		for(let ind in this.hex)this.hex[ind] = Math.max(Math.min(this.hex[ind], 255), 0);
+		return this;
+	}
+	set(r, g, b){
+		this.hex[0] = r;
+		this.hex[1] = g;
+		this.hex[2] = b;
+		
+		return this;
+	}
+	set_style(string){
+		let hex_index = 0,
+			offset = string[0] == '#' ? 1 : 0,
+			chunk = string.length - offset < 5 ? 1 : 2;
+		
+		for(let index = offset; index < string.length; index += chunk){
+			let part = string.substr(index, chunk);
+			
+			if(chunk == 1)part += part;	
+			
+			this.hex[hex_index++] = parseInt(part, 16);
+		}
+		
+		return this;
+	}
+	toString(){
+		var string = '#';
+		
+		for(let color of this.hex)string += color.toString(16).padStart(2, 0);
+		
+		return string;
+	}
+};
+
+exports.Hex = Hex;
 exports.Vector3 = Vector3;
 
 /***/ }),
@@ -1068,9 +1324,11 @@ class SliderControl extends Control {
 					max_val = this.data.range[1],
 					unit = this.data.range[2],
 					perc = ((event.pageX - slider_box.x) / slider_box.width) * 100,
-					value = Math.max((((max_val)*perc/100)).toFixed(2), min_val);
+					value = Math.max((((max_val)*perc/100)), min_val);
 				
 				if(unit)value = rtn(value, unit);
+				
+				value = +value.toFixed(2);
 				
 				if(event.clientX <= slider_box.x)value = perc = min_val;
 				else if(event.clientX >= slider_box.x + slider_box.width)value = max_val, perc = 100;
@@ -1095,7 +1353,7 @@ class SliderControl extends Control {
 		super.update();
 		this.button.style.display = 'none';
 		this.background.style.width = ((this.value / this.data.range[1]) * 100) + '%';
-		this.slider.dataset.value = this.data.labels && this.data.labels[this.value] || this.value + (this.data.unit == null ? '%' : this.data.unit);
+		this.slider.dataset.value = this.data.labels && this.data.labels[this.value] || this.value + (this.data.unit == false ? '' : this.data.unit == null ? '%' : this.data.unit);
 		this.label.textContent = this.name + ':';
 	}
 };
@@ -2369,15 +2627,16 @@ class Utils {
 		}
 		return el;
 	}
-	create_button(name, iconURL, fn, visible){
-		visible = visible ? "inherit":"none";
+	clone_obj(obj){
+		return JSON.parse(JSON.stringify(obj));
+	}
+	assign_deep(target, ...objects){
+		for(let ind in objects)for(let key in objects[ind]){
+			if(typeof objects[ind][key] == 'object' && objects[ind][key] != null && key in target)this.assign_deep(target[key], objects[ind][key]);
+			else if(typeof target == 'object' && target != null)Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(objects[ind], key))
+		}
 		
-		var menu = document.querySelector("#menuItemContainer"),
-			icon = this.createElement("div",{"class":"menuItemIcon", "style":`background-image:url("${iconURL}");display:inherit;`}),
-			title = this.createElement("div",{"class":"menuItemTitle", "style":`display:inherit;`}, name),
-			host = this.createElement("div",{"id":"mainButton", "class":"menuItem", "onmouseenter":"playTick()", "onclick":"showWindow(12)", "style":`display:${visible};`},[icon, title]);
-		
-		if(menu)menu.append(host);
+		return target;
 	}
 }
 
@@ -2532,6 +2791,241 @@ exports.consts = {
 exports.load = loader => {
 	loader(add_var, add_patch, exports.key);
 };
+
+/***/ }),
+
+/***/ "../libs/visual.js":
+/*!*************************!*\
+  !*** ../libs/visual.js ***!
+  \*************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+"use strict";
+
+
+var vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
+	{ utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js");
+
+class Visual {
+	constructor(cheat){
+		this.cheat = cheat;
+		this.materials = {};
+	}
+	tick(UI){
+		this.canvas = UI.canvas;
+		this.ctx = UI.ctx;
+		this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+	}
+	draw_text(text_x, text_y, font_size, lines){
+		for(var text_index = 0; text_index < lines.length; text_index++){
+			var line = lines[text_index], xoffset = 0;
+			
+			for(var sub_ind = 0; sub_ind < line.length; sub_ind++){
+				var color = line[sub_ind][0],
+					text = line[sub_ind][1],
+					text_args = [ text, text_x + xoffset, text_y + text_index * (font_size + 2) ];
+				
+				this.ctx.fillStyle = color;
+				this.ctx.strokeText(...text_args);
+				this.ctx.fillText(...text_args);
+				
+				xoffset += this.ctx.measureText(text).width + 2;
+			}
+		}
+	}
+	fov(fov){
+		var width = (this.canvas.width * fov) / 100,
+			height = (this.canvas.height * fov) / 100;
+		
+		this.ctx.fillStyle = '#F00';
+		this.ctx.globalAlpha = 0.4;
+		this.ctx.fillRect((this.canvas.width - width) / 2, (this.canvas.height - height) / 2, width, height);
+		this.ctx.globalAlpha = 1;
+	}
+	walls(){
+		this.cheat.world.scene.children.forEach(obj => {
+			if(obj.type != 'Mesh' || !obj.dSrc || obj.material[Visual.hooked])return;
+			
+			obj.material[Visual.hooked] = true;
+			
+			var otra = obj.material.transparent,
+				opac = obj.material.opacity;
+			
+			Object.defineProperties(obj.material, {
+				opacity: {
+					get: _ => opac * this.cheat.config.esp.walls / 100,
+					set: _ => opac = _,
+				},
+				transparent: {
+					get: _ => this.cheat.config.esp.walls != 100 ? true : otra,
+					set: _ => otra = _,
+				},
+			});
+		});
+	}
+	axis_join(player){
+		return player ? ['x', 'y', 'z'].map(axis => axis + ': ' + player[axis].toFixed(2)).join(', ') : null;
+	}
+	overlay(){
+		this.ctx.strokeStyle = '#000'
+		this.ctx.font = 'bold 14px inconsolata, monospace';
+		this.ctx.textAlign = 'start';
+		this.ctx.lineWidth = 2.6;
+		
+		var data = {
+			Player: this.cheat.player ? this.axis_join(this.cheat.player.position) : null,
+			PlayerV: this.cheat.player ? this.axis_join(this.cheat.player.velocity) : null,
+			Target: this.cheat.target ? this.axis_join(this.cheat.target.position) : null,
+		};
+		
+		var lines = [];
+		
+		for(var key in data){
+			var color = '#FFF',
+				value = data[key];
+			
+			switch(typeof value){
+				case'boolean':
+					
+					color = value ? '#0F0' : '#F00';
+					value = value ? 'Yes' : 'No';
+					
+					break;
+				case'number':
+					
+					color = '#00F';
+					value = value.toFixed(2);
+					
+					break;
+				case'object':
+					
+					value = 'N/A';
+					
+					break;
+			}
+			
+			lines.push([ [ '#BBB', key + ': ' ], [ color, value ] ]);
+		}
+		
+		this.draw_text(15, ((this.canvas.height / 2) - (lines.length * 14)  / 2), 14, lines);
+	}
+	box(player){
+		this.ctx.strokeStyle = player.esp_color;
+		this.ctx.lineWidth = 1.5;
+		this.ctx.strokeRect(player.rect.left, player.rect.top, player.rect.width, player.rect.height);
+	}
+	tracer(player){
+		this.ctx.strokeStyle = player.esp_color;
+		this.ctx.lineWidth = 1.75;
+		this.ctx.lineCap = 'round';
+		
+		this.ctx.beginPath();
+		// bottom center
+		this.ctx.moveTo(this.canvas.width / 2, this.canvas.height);
+		// target center
+		this.ctx.lineTo(player.rect.x, player.rect.bottom);
+		this.ctx.stroke();
+	}
+	get can_draw_chams(){
+		return this.cheat.config.esp.status == 'chams' || this.cheat.config.esp.status == 'box_chams' || this.cheat.config.esp.status == 'full';
+	}
+	cham(player){
+		if(!player.obj[Visual.hooked]){
+			player.obj[Visual.hooked] = true;
+			
+			let visible = true;
+			
+			Object.defineProperty(player.obj, 'visible', {
+				get: _ => this.can_draw_chams || visible,
+				set: _ => visible = _,
+			});
+		}
+		
+		player.obj.traverse(obj => {
+			if(obj.type != 'Mesh' || obj[Visual.hooked])return;
+			
+			obj[Visual.hooked] = true;
+			
+			var orig_mat = obj.material;
+			
+			Object.defineProperty(obj, 'material', {
+				get: _ => {
+					var material = this.can_draw_chams ? (this.materials[player.esp_color] || (this.materials[player.esp_color] = new utils.three.MeshBasicMaterial({
+						transparent: true,
+						fog: false,
+						depthTest: false,
+						color: player.esp_color,
+					}))) : orig_mat;
+					
+					material.wireframe = !!this.cheat.config.game.wireframe;
+					
+					return material;
+				},
+				set: _ => orig_mat = _,
+			});
+		});
+	}
+	label(player){
+		for(var part in player.parts){
+			var srcp = utils.pos2d(player.parts[part]);
+			this.ctx.fillStyle = '#FFF';
+			this.ctx.font = '13px monospace thin';
+			this.ctx.fillRect(srcp.x - 2, srcp.y - 2, 4, 4);
+			this.ctx.fillText(part, srcp.x, srcp.y - 6);
+		}
+	}
+	health(player){
+		this.ctx.save();
+		this.ctx.scale(...player.box_scale);
+		
+		var rect = player.scale_rect(...player.box_scale);
+		
+		this.ctx.fillStyle = player.hp_color;
+		this.ctx.fillRect(rect.left - 30, rect.top, 25, rect.height);
+		
+		this.ctx.restore();
+	}
+	text(player){
+		this.ctx.save();
+		this.ctx.scale(...player.dist_scale);
+		
+		var rect = player.scale_rect(...player.dist_scale),
+			font_size = 13;
+		
+		this.ctx.font = 'Bold ' + font_size + 'px Tahoma';
+		this.ctx.strokeStyle = '#000';
+		this.ctx.lineWidth = 2.5;
+		this.ctx.textBaseline = 'top';
+		
+		var text = [
+			[
+				[ '#FB8', player.alias ],
+				[ '#FFF', player.clan ? ' [' + player.clan + ']' : '' ],
+			],
+			[
+				[ player.hp_color, player.health + '/' + player.max_health + ' HP' ],
+			],
+			[
+				[ '#FFF', player.weapon.name ],
+				[ '#BBB', '[' ],
+				[ '#FFF', player.ammo ],
+				[ '#BBB', '/' ],
+				[ '#FFF', player.max_ammo ],
+				[ '#BBB', ']' ],
+			],
+		]
+		
+		if(player.target)text.push([ [ '#00F', 'Target' ] ]);
+		
+		this.draw_text(rect.right + 4, rect.top, font_size, text);
+		
+		this.ctx.restore();
+	}
+};
+
+Visual.hooked = Symbol();
+
+module.exports = Visual;
 
 /***/ }),
 
@@ -5486,7 +5980,7 @@ function write0(type) {
 
 var vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
 	{ utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js"),
-	Player;
+	Player = __webpack_require__(/*! ../libs/player */ "../libs/player.js");
 
 class Cheat {
 	constructor(){
@@ -5505,37 +5999,19 @@ class Cheat {
 				return ent_1.health - ent_2.health;
 			},
 		};
-		
-		this.y_offset_types = ['head', 'torso', 'legs'];
-		
-		this.y_offset_rand = 'head';
-
-		setInterval(() => this.y_offset_rand = this.y_offset_types[~~(Math.random() * this.y_offset_types.length)], 2000);
 	}
 	get config(){
 		return this.ui.config;
 	}
 	add(entity){
-		return entity[this.hooked] || (entity[this.hooked] = new Player(entity));
+		return entity[this.hooked] || (entity[this.hooked] = new Player(this, entity));
 	}
 	pick_target(){
 		return this.game.players.list.map(ent => this.add(ent)).filter(player => player.can_target).sort((ent_1, ent_2) => this.sorts[this.config.aim.target_sorting || 'dist2d'](ent_1, ent_2) * (ent_1.frustum ? 1 : 0.5))[0]
 	}
-	get aim_part(){
-		return this.config.aim.offset != 'random' ? this.config.aim.offset : this.y_offset_rand;
-	}
 };
 
 module.exports = new Cheat();
-
-Player = __webpack_require__(/*! ./player */ "./player.js");
-
-/*Object.assign(window.eval('window'), {
-	cheat: exports,
-	cheat_vars: vars,
-	cheat_utils: utils,
-	cheat_consts: require('../libs/consts'),
-});*/
 
 /***/ }),
 
@@ -5575,7 +6051,7 @@ config.add_section({
 	},{
 		name: 'Auto Bhop',
 		type: 'rotate',
-		walk: 'game.bhop',
+		walk: 'player.bhop',
 		key: 'binds.bhop',
 		vals: [
 			[ 'off', 'Off' ],
@@ -5628,7 +6104,7 @@ config.add_section({
 	},{
 		name: 'Unlock Skins',
 		type: 'boolean',
-		walk: 'game.skins',
+		walk: 'player.skins',
 	},{
 		name: 'Wireframe',
 		type: 'boolean',
@@ -5651,8 +6127,8 @@ config.add_section({
 		name: 'Smoothness',
 		type: 'slider',
 		walk: 'aim.smooth',
-		unit: 'U',
-		range: [ 0, 50, 2 ],
+		range: [ 0, 1, 0.2 ],
+		unit: false,
 		labels: { 0: 'Off' },
 	},{
 		name: 'Target FOV',
@@ -5807,11 +6283,16 @@ config.default_config = {
 		status: 'off',
 		offset: 'random',
 		target_sorting: 'dist2d',
-		smooth: 15,
+		smooth: 0.2,
 		hitchance: 100,
 		// percentage of screen
 		fov_box: false,
 		fov: 60,
+	},
+	color: {
+		risk: '#FF7700',
+		hostile: '#FF0000',
+		friendly: '#00FF00',
 	},
 	esp: {
 		status: 'off',
@@ -5820,12 +6301,15 @@ config.default_config = {
 		tracers: false,
 	},
 	game: {
-		bhop: 'off',
 		wireframe: false,
 		auto_respawn: false,
 		adblock: true,
 		custom_loading: true,
 		inactivity: true,
+	},
+	player: {
+		bhop: 'off',
+		skins: false,
 	},
 };
 
@@ -5855,152 +6339,7 @@ config.css_editor = new UI.Editor({
 	].join(''),
 });
 
-
 module.exports = config;
-
-/***/ }),
-
-/***/ "./input.js":
-/*!******************!*\
-  !*** ./input.js ***!
-  \******************/
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-"use strict";
-
-
-var vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
-	cheat = __webpack_require__(/*! ./cheat */ "./cheat.js"),
-	InputData = __webpack_require__(/*! ../libs/inputdata */ "../libs/inputdata.js"),
-	{ Vector3 } = __webpack_require__(/*! ../libs/space */ "../libs/space.js"),
-	{ api, utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js");
-
-class Input {
-	push(array){
-		if(cheat.player && cheat.controls)try{
-			var data = new InputData(array);
-			
-			this.modify(data);
-			
-			InputData.previous = data;
-		}catch(err){
-			api.report_error('input', err);
-		}
-		
-		return array;
-	}
-	aim_input(rot, data){
-		data.xdir = rot.x * 1000;
-		data.ydir = rot.y * 1000;
-	}
-	aim_camera(rot, data){
-		// updating camera will make a difference next tick, update current tick with aim_input
-		cheat.controls[vars.pchObjc].rotation.x = rot.x;
-		cheat.controls.object.rotation.y = rot.y;
-		
-		this.aim_input(rot, data);
-	}
-	correct_aim(rot, data){
-		if(data.shoot)data.shoot = !cheat.player.shot;
-		
-		if(!data.reload && cheat.player.has_ammo && data.shoot && !cheat.player.shot)this.aim_input(rot, data);
-	}
-	enemy_sight(){
-		if(cheat.player.shot)return;
-		
-		var raycaster = new utils.three.Raycaster();
-		
-		raycaster.setFromCamera({ x: 0, y: 0 }, cheat.world.camera);
-		
-		if(cheat.player.aimed && raycaster.intersectObjects(cheat.game.players.list.map(ent => cheat.add(ent)).filter(ent => ent.can_target).map(ent => ent.obj), true).length)return true;
-	}
-	calc_rot(player){
-		var camera = utils.camera_world(),
-			target = player.aim_point;
-		
-		// target.add(player.velocity);
-		
-		var x_dire = utils.getXDire(camera.x, camera.y, camera.z, target.x, target.y
-			- cheat.player.jump_bob_y
-			, target.z)
-			- cheat.player.land_bob_y * 0.1
-			- cheat.player.recoil_y * vars.consts.recoilMlt,
-			y_dire = utils.getDir(camera.z, camera.x, target.z, target.x);
-		
-		return {
-			x: x_dire || 0,
-			y: y_dire || 0,
-		};
-	}
-	smooth(target){
-		var mov = 17,
-			// default 0.0022
-			div = 10000,
-			turn = (50 - cheat.config.aim.smooth) / div,
-			speed = (50 - cheat.config.aim.smooth) / div,
-			x_ang = utils.getAngleDst(cheat.controls[vars.pchObjc].rotation.x, target.xD),
-			y_ang = utils.getAngleDst(cheat.controls.object.rotation.y, target.yD);
-		
-		return {
-			y: cheat.controls.object.rotation.y + y_ang * mov * turn,
-			x: cheat.controls[vars.pchObjc].rotation.x + x_ang * mov * turn,
-		};
-	}
-	modify(data){
-		// bhop
-		if(data.focused && cheat.config.game.bhop != 'off' && (data.keys.Space || cheat.config.game.bhop == 'autojump' || cheat.config.game.bhop == 'autoslide')){
-			cheat.controls.keys[cheat.controls.binds.jump.val] ^= 1;
-			if(cheat.controls.keys[cheat.controls.binds.jump.val])cheat.controls.didPressed[cheat.controls.binds.jump.val] = 1;
-			
-			if((cheat.config.game.bhop == 'keyslide' && data.keys.Space || cheat.config.game.bhop == 'autoslide') && cheat.player.velocity.y < -0.02 && cheat.player.can_slide)setTimeout(() => cheat.controls.keys[cheat.controls.binds.crouch.val] = 0, 325), cheat.controls.keys[cheat.controls.binds.crouch.val] = 1;
-		}
-		
-		// auto reload
-		if(!cheat.player.has_ammo && (cheat.config.aim.status == 'auto' || cheat.config.aim.auto_reload))data.reload = 1;
-		
-		// TODO: target once on aim
-		
-		data.could_shoot = cheat.player.can_shoot;
-		
-		var nauto = cheat.player.weapon_auto || cheat.player.weapon.burst || !data.shoot || !InputData.previous.could_shoot || !InputData.previous.shoot,
-			hitchance = (Math.random() * 100) < cheat.config.aim.hitchance,
-			can_target = cheat.config.aim.status == 'auto' || data.scope || data.shoot;
-		
-		if(cheat.player.weapon.burst)cheat.player.shot = cheat.player.did_shoot;
-		
-		if(can_target)cheat.target = cheat.pick_target();
-		
-		if(cheat.player.can_shoot)if(cheat.config.aim.status == 'trigger')data.shoot = this.enemy_sight() || data.shoot;
-		else if(cheat.config.aim.status != 'off' && cheat.target && cheat.player.health){
-			var rot = this.calc_rot(cheat.target);
-			
-			if(hitchance)if(cheat.config.aim.status == 'correction' && nauto)this.correct_aim(rot, data);
-			else if(cheat.config.aim.status == 'auto'){
-				if(cheat.player.can_aim)data.scope = 1;
-				
-				if(cheat.player.aimed)data.shoot = !cheat.player.shot;
-				
-				this.correct_aim(rot, data);
-			}
-			
-			if(cheat.config.aim.status == 'assist' && cheat.player.aim_press){
-				if(cheat.config.aim.smooth)rot = this.smooth({ xD: rot.x, yD: rot.y });
-				
-				this.aim_camera(rot, data);
-				
-				// offset aim rather than revert to any previous camera rotation
-				if(data.shoot && !cheat.player.shot && !hitchance)data.ydir = 0;
-			}
-		}
-		
-		if(cheat.player.can_shoot && data.shoot && !cheat.player.shot){
-			cheat.player.shot = true;
-			setTimeout(() => cheat.player.shot = false, cheat.player.weapon.rate + 2);
-		}
-	}
-};
-
-module.exports = Input;
 
 /***/ }),
 
@@ -6015,16 +6354,16 @@ module.exports = Input;
 
 var UI = __webpack_require__(/*! ../libs/ui/ */ "../libs/ui/index.js"),
 	vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
+	Visual = __webpack_require__(/*! ../libs/visual */ "../libs/visual.js"),
+	Input = __webpack_require__(/*! ../libs/input */ "../libs/input.js"),
 	cheat = __webpack_require__(/*! ./cheat */ "./cheat.js"),
-	Visual = __webpack_require__(/*! ./visual */ "./visual.js"),
-	Input = __webpack_require__(/*! ./input */ "./input.js"),
 	Socket = __webpack_require__(/*! ./socket */ "./socket.js"),
-	input = new Input(),
-	visual = new Visual(),
+	input = new Input(cheat),
+	visual = new Visual(cheat),
 	{ utils, proxy_addons, supported_store, addon_url, meta, api, store } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js"),
 	process = () => {
 		try{
-			visual.tick();
+			visual.tick(UI);
 			
 			if(cheat.config.game.overlay)visual.overlay();
 			
@@ -6094,6 +6433,7 @@ UI.ready.then(async () => {
 	
 	// migrate
 	if(typeof cheat.config.aim.smooth == 'object')cheat.config.aim.smooth = cheat.config.aim.smooth.value;
+	if(cheat.config.aim.smooth > 1)cheat.config.aim.smooth = 0;
 	if(typeof cheat.config.esp.walls == 'object')cheat.config.esp.walls = 100;
 	
 	if(cheat.config.aim.target == 'feet')cheat.config.aim.target == 'legs';
@@ -6173,268 +6513,6 @@ module.exports = {
 
 /***/ }),
 
-/***/ "./player.js":
-/*!*******************!*\
-  !*** ./player.js ***!
-  \*******************/
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-"use strict";
-
-
-var cheat = __webpack_require__(/*! ./cheat */ "./cheat.js"),
-	vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
-	{ utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js"),
-	{ Vector3 } = __webpack_require__(/*! ../libs/space */ "../libs/space.js");
-
-class Player {
-	constructor(entity){
-		this.entity = typeof entity == 'object' && entity != null ? entity : {};
-		this.velocity = new Vector3();
-		this.position = new Vector3();
-		
-		this.parts = {
-			hitbox_head: new Vector3(),
-			head: new Vector3(),
-			torso: new Vector3(),
-			legs: new Vector3(),
-		};
-	}
-	get x(){ console.warn('get X'); return this.position.x }
-	get y(){ console.warn('get Y'); return this.position.y }
-	get z(){ console.warn('get Z'); return this.position.z }
-	scale_rect(sx, sy){
-		var out = {},
-			horiz = [ 'y', 'height', 'top', 'bottom' ];
-		
-		for(var key in this.rect)out[key] = this.rect[key] / (horiz.includes(key) ? sy : sx);
-		
-		return out;
-	}
-	get in_fov(){
-		if(!this.active)return false;
-		if(cheat.config.aim.fov == 110)return true;
-		
-		var fov_bak = utils.world.camera.fov;
-		
-		// config fov is percentage of current fov
-		utils.world.camera.fov = cheat.config.aim.fov / fov_bak * 100;
-		utils.world.camera.updateProjectionMatrix();
-		
-		utils.update_frustum();
-		var ret = this.frustum;
-		
-		utils.world.camera.fov = fov_bak;
-		utils.world.camera.updateProjectionMatrix();
-		
-		return ret;
-	}
-	get can_target(){
-		return this.active && this.can_see && this.enemy && this.in_fov;
-	}
-	get frustum(){
-		return this.is_you || this.active && utils.contains_point(this.aim_point);
-	}
-	get hp_color(){
-		var hp_perc = (this.health / this.max_health) * 100,
-			hp_red = hp_perc < 50 ? 255 : Math.round(510 - 5.10 * hp_perc),
-			hp_green = hp_perc < 50 ? Math.round(5.1 * hp_perc) : 255;
-		
-		return '#' + ('000000' + (hp_red * 65536 + hp_green * 256 + 0 * 1).toString(16)).slice(-6);
-	}
-	get esp_color(){
-		// teammate = green, enemy = red, risk + enemy = orange
-		var hex = this.enemy ? this.risk ? [ 0xFF, 0x77, 0x00 ] : [ 0xFF, 0x00, 0x00 ] : [ 0x00, 0xFF, 0x00 ],
-			inc = this.can_see ? 0x00 : -0x77,
-			part_str = part => Math.max(Math.min(part + inc, 0xFF), 0).toString(16).padStart(2, 0);
-		
-		return '#' + hex.map(part_str).join('');
-	}
-	get ping(){ return this.entity.ping }
-	get jump_bob_y(){ return this.entity.jumpBobY }
-	get clan(){ return this.entity.clan }
-	get alias(){ return this.entity.alias }
-	get weapon(){ return this.entity.weapon }
-	get weapon_auto(){ return !this.weapon.nAuto }
-	get can_slide(){ return this.entity.canSlide }
-	get risk(){ return this.entity.level >= 30 || this.entity.account && (this.entity.account.featured || this.entity.account.premiumT) }
-	get is_you(){ return this.entity[vars.isYou] }
-	get target(){
-		return cheat.target && this.entity == cheat.target.entity;
-	}
-	get can_melee(){
-		return this.weapon.melee && cheat.target && cheat.target.active && this.position.distance_to(cheat.target) <= 18 || false;
-	}
-	get reloading(){
-		// reloadTimer in var randomization array
-		return this.entity.reloadTimer != 0;
-	}
-	get can_aim(){
-		return !this.can_melee;
-	}
-	get can_throw(){
-		return this.entity.canThrow && this.weapon.canThrow;
-	}
-	get aimed(){
-		var aim_val = this.can_throw
-			? 1 - this.entity.chargeTime / this.entity.throwCharge
-			: this.weapon.melee ? 1 : this.entity[vars.aimVal];
-		
-		return this.weapon.noAim || aim_val == 0 || this.can_melee || false;
-	}
-	get can_shoot(){
-		return !this.reloading && this.has_ammo && (this.can_throw || !this.weapon.melee || this.can_melee);
-	}
-	get aim_press(){ return cheat.controls[vars.mouseDownR] || cheat.controls.keys[cheat.controls.binds.aim.val] }
-	get crouch(){ return this.entity[vars.crouchVal] || 0 }
-	get box_scale(){
-		var view = utils.camera_world(),	
-			center = this.box.getCenter(),
-			a = side => Math.min(1, (this.rect[side] / utils.canvas[side]) * 10);
-		
-		return [ a('width'), a('height') ];
-	}
-	get dist_scale(){
-		var view = utils.camera_world(),	
-			center = this.box.getCenter(),
-			scale = Math.max(0.65, 1 - utils.getD3D(view.x, view.y, view.z, this.position.x, this.position.y, this.position.z) / 600);
-		
-		return [ scale, scale ];
-	}
-	get distance_camera(){
-		return utils.camera_world().distanceTo(this.position);
-	}
-	get obj(){ return this.is_ai ? this.enity.dat : this.entity[vars.objInstances] }
-	get land_bob_y(){ return this.entity.landBobY || 0 }
-	get recoil_y(){ return this.entity[vars.recoilAnimY] || 0 }
-	get has_ammo(){ return this.ammo || this.ammo == this.max_ammo }
-	get ammo(){ return this.entity[vars.ammos][this.entity[vars.weaponIndex]] || 0 }
-	get max_ammo(){ return this.weapon.ammo || 0 }
-	get height(){ return this.entity.height || 0 } // (this.entity.height || 0) - this.crouch * 3 }
-	get health(){ return this.entity.health || 0 }
-	get scale(){ return this.entity.scale }
-	get max_health(){ return this.entity[vars.maxHealth] || 100 }
-	//  && (this.is_you ? true : this.chest && this.leg)
-	get active(){ return this.entity.active && this.entity.x != null && this.health > 0 && (this.is_you ? true : this.chest && this.leg) }
-	get teammate(){ return this.is_you || cheat.player && this.team && this.team == cheat.player.team }
-	get enemy(){ return !this.teammate }
-	get team(){ return this.entity.team }
-	get did_shoot(){ return this.entity[vars.didShoot] }
-	get chest(){
-		return this.entity.lowerBody ? this.entity.lowerBody.children[0] : null;
-	}
-	get leg(){
-		for(var mesh of this.entity.legMeshes)if(mesh.visible)return mesh;
-		return this.chest;
-	}
-	tick(){
-		this.position.set(this.entity.x, this.entity.y, this.entity.z);
-		this.velocity.set(this.entity.xVel, this.entity.yVel, this.entity.zVel);
-		
-		this.parts.hitbox_head.copy(this.position).set_y(this.position.y + this.height - (this.crouch * vars.consts.crouchDst));
-		
-		if(this.is_you)return;
-		
-		var box = this.box = new utils.three.Box3();
-		
-		box.expandByObject(this.chest);
-		
-		var add_obj = obj => obj.visible && obj.traverse(obj => {
-			if(obj.type == 'Mesh' && obj.visible)box.expandByObject(obj);
-		});
-		
-		for(var obj of this.entity.legMeshes)add_obj(obj);
-		for(var obj of this.entity.upperBody.children)add_obj(obj);
-		
-		var bounds = {
-			center: utils.pos2d(box.getCenter()),
-			min: {
-				x:  Infinity,
-				y: Infinity,
-			},
-			max: {
-				x: -Infinity,
-				y: -Infinity,
-			},
-		};
-		
-		for(var vec of [
-			{ x: box.min.x, y: box.min.y, z: box.min.z },
-			{ x: box.min.x, y: box.min.y, z: box.max.z },
-			{ x: box.min.x, y: box.max.y, z: box.min.z },
-			{ x: box.min.x, y: box.max.y, z: box.max.z },
-			{ x: box.max.x, y: box.min.y, z: box.min.z },
-			{ x: box.max.x, y: box.min.y, z: box.max.z },
-			{ x: box.max.x, y: box.max.y, z: box.min.z },
-			{ x: box.max.x, y: box.max.y, z: box.max.z },
-		]){
-			if(!utils.contains_point(vec))continue;
-			
-			var td  = utils.pos2d(vec);
-			
-			if(td.x < bounds.min.x)bounds.min.x = td.x;
-			else if(td.x > bounds.max.x)bounds.max.x = td.x;
-			
-			if(td.y < bounds.min.y)bounds.min.y = td.y;
-			else if(td.y > bounds.max.y)bounds.max.y = td.y;
-		}
-		
-		this.rect = {
-			x: bounds.center.x,
-			y: bounds.center.y,
-			left: bounds.min.x,
-			top: bounds.min.y,
-			right: bounds.max.x,
-			bottom: bounds.max.y,
-			width: bounds.max.x - bounds.min.x,
-			height: bounds.max.y - bounds.min.y,
-		};
-		
-		var head_size = 1.5,
-			chest_box = new utils.three.Box3().setFromObject(this.chest),
-			chest_size = chest_box.getSize(),
-			chest_pos = chest_box.getCenter();
-		
-		// parts centered
-		this.parts.torso.copy(chest_pos).translate_quaternion(this.chest.getWorldQuaternion(), new Vector3().copy({
-			x: 0,
-			y: -head_size / 2,
-			z: 0,
-		}));
-		
-		this.parts.torso_height = chest_size.y - head_size;
-		
-		this.parts.head.copy(chest_pos).translate_quaternion(this.chest.getWorldQuaternion(), new Vector3().copy({
-			x: 0,
-			y: this.parts.torso_height / 2,
-			z: 0,
-		}));
-		
-		var leg_pos = this.leg[vars.getWorldPosition](),
-			leg_scale = this.leg.getWorldScale();
-		
-		this.parts.legs = new Vector3().copy(leg_pos).translate_quaternion(this.leg.getWorldQuaternion(), new Vector3().copy({
-			x: -leg_scale.x / 2,
-			y: -leg_scale.y / 2,
-			z: 0,
-		}));
-		
-		this.aim_point = cheat.aim_part == 'head' ? this.parts.hitbox_head : (this.parts[cheat.aim_part] || (console.error(cheat.aim_part, 'not registered'), Vector3.Blank));
-		
-		this.world_pos = this.active ? this.obj[vars.getWorldPosition]() : { x: 0, y: 0, z: 0 };
-		
-		var camera_world = utils.camera_world();
-		
-		this.can_see = cheat.player &&
-			utils.obstructing(camera_world, this.aim_point, (!cheat.player || cheat.player.weapon && cheat.player.weapon.pierce) && cheat.config.aim.wallbangs)
-		== null ? true : false;
-	}
-};
-
-module.exports = Player;
-
-/***/ }),
-
 /***/ "./socket.js":
 /*!*******************!*\
   !*** ./socket.js ***!
@@ -6457,7 +6535,7 @@ class Socket extends WebSocket {
 			var [ label, ...data ] = msgpack.decode(new Uint8Array(event.data)), client;
 			
 			if(label == 'io-init')store.socket_id = data[0];
-			else if(cheat.config.game.skins && label == 0 && store.skin_cache && (client = data[0].indexOf(store.socket_id)) != -1){
+			else if(cheat.config.player.skins && label == 0 && store.skin_cache && (client = data[0].indexOf(store.socket_id)) != -1){
 				// loadout
 				data[0][client + 12] = store.skin_cache[2];
 				
@@ -6498,262 +6576,6 @@ class Socket extends WebSocket {
 };
 
 module.exports = Socket;
-
-/***/ }),
-
-/***/ "./visual.js":
-/*!*******************!*\
-  !*** ./visual.js ***!
-  \*******************/
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-"use strict";
-
-
-var UI = __webpack_require__(/*! ../libs/ui/ */ "../libs/ui/index.js"),
-	vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
-	cheat = __webpack_require__(/*! ./cheat */ "./cheat.js"),
-	{ utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js");
-
-class Visual {
-	constructor(){
-		this.materials = {};
-	}
-	tick(){
-		this.canvas = UI.canvas;
-		this.ctx = UI.ctx;
-		
-		this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-	}
-	draw_text(text_x, text_y, font_size, lines){
-		for(var text_index = 0; text_index < lines.length; text_index++){
-			var line = lines[text_index], xoffset = 0;
-			
-			for(var sub_ind = 0; sub_ind < line.length; sub_ind++){
-				var color = line[sub_ind][0],
-					text = line[sub_ind][1],
-					text_args = [ text, text_x + xoffset, text_y + text_index * (font_size + 2) ];
-				
-				this.ctx.fillStyle = color;
-				this.ctx.strokeText(...text_args);
-				this.ctx.fillText(...text_args);
-				
-				xoffset += this.ctx.measureText(text).width + 2;
-			}
-		}
-	}
-	fov(fov){
-		var width = (this.canvas.width * fov) / 100,
-			height = (this.canvas.height * fov) / 100;
-		
-		this.ctx.fillStyle = '#F00';
-		this.ctx.globalAlpha = 0.4;
-		this.ctx.fillRect((this.canvas.width - width) / 2, (this.canvas.height - height) / 2, width, height);
-		this.ctx.globalAlpha = 1;
-	}
-	walls(){
-		cheat.world.scene.children.forEach(obj => {
-			if(obj.type != 'Mesh' || !obj.dSrc || obj.material[Visual.hooked])return;
-			
-			obj.material[Visual.hooked] = true;
-			
-			var otra = obj.material.transparent,
-				opac = obj.material.opacity;
-			
-			Object.defineProperties(obj.material, {
-				opacity: {
-					get: _ => opac * cheat.config.esp.walls / 100,
-					set: _ => opac = _,
-				},
-				transparent: {
-					get: _ => cheat.config.esp.walls != 100 ? true : otra,
-					set: _ => otra = _,
-				},
-			});
-		});
-	}
-	axis_join(player){
-		return player ? ['x', 'y', 'z'].map(axis => axis + ': ' + player[axis].toFixed(2)).join(', ') : null;
-	}
-	overlay(){
-		this.ctx.strokeStyle = '#000'
-		this.ctx.font = 'bold 14px inconsolata, monospace';
-		this.ctx.textAlign = 'start';
-		this.ctx.lineWidth = 2.6;
-		
-		var data = {
-			Player: cheat.player ? this.axis_join(cheat.player.position) : null,
-			PlayerV: cheat.player ? this.axis_join(cheat.player.velocity) : null,
-			Target: cheat.target ? this.axis_join(cheat.target.position) : null,
-		};
-		
-		var lines = [];
-		
-		for(var key in data){
-			var color = '#FFF',
-				value = data[key];
-			
-			switch(typeof value){
-				case'boolean':
-					
-					color = value ? '#0F0' : '#F00';
-					value = value ? 'Yes' : 'No';
-					
-					break;
-				case'number':
-					
-					color = '#00F';
-					value = value.toFixed(2);
-					
-					break;
-				case'object':
-					
-					value = 'N/A';
-					
-					break;
-			}
-			
-			lines.push([ [ '#BBB', key + ': ' ], [ color, value ] ]);
-		}
-		
-		this.draw_text(15, ((this.canvas.height / 2) - (lines.length * 14)  / 2), 14, lines);
-	}
-	box(player){
-		this.ctx.strokeStyle = player.esp_color;
-		this.ctx.lineWidth = 1.5;
-		this.ctx.strokeRect(player.rect.left, player.rect.top, player.rect.width, player.rect.height);
-	}
-	tracer(player){
-		this.ctx.strokeStyle = player.esp_color;
-		this.ctx.lineWidth = 1.75;
-		this.ctx.lineCap = 'round';
-		
-		this.ctx.beginPath();
-		// bottom center
-		this.ctx.moveTo(this.canvas.width / 2, this.canvas.height);
-		// target center
-		this.ctx.lineTo(player.rect.x, player.rect.bottom);
-		this.ctx.stroke();
-	}
-	get can_draw_chams(){
-		return cheat.config.esp.status == 'chams' || cheat.config.esp.status == 'box_chams' || cheat.config.esp.status == 'full';
-	}
-	cham(player){
-		if(!player.obj[Visual.hooked]){
-			player.obj[Visual.hooked] = true;
-			
-			let visible = true;
-			
-			Object.defineProperty(player.obj, 'visible', {
-				get: _ => this.can_draw_chams || visible,
-				set: _ => visible = _,
-			});
-		}
-		
-		player.obj.traverse(obj => {
-			if(obj.type != 'Mesh' || obj[Visual.hooked])return;
-			
-			obj[Visual.hooked] = true;
-			
-			var orig_mat = obj.material;
-			
-			Object.defineProperty(obj, 'material', {
-				get: _ => {
-					var material = this.can_draw_chams ? (this.materials[player.esp_color] || (this.materials[player.esp_color] = new utils.three.MeshBasicMaterial({
-						transparent: true,
-						fog: false,
-						depthTest: false,
-						color: player.esp_color,
-					}))) : orig_mat;
-					
-					material.wireframe = !!cheat.config.game.wireframe;
-					
-					return material;
-				},
-				set: _ => orig_mat = _,
-			});
-		});
-	}
-	label(player){
-		for(var part in player.parts){
-			var srcp = utils.pos2d(player.parts[part]);
-			this.ctx.fillStyle = '#FFF';
-			this.ctx.font = '13px monospace thin';
-			this.ctx.fillRect(srcp.x - 2, srcp.y - 2, 4, 4);
-			this.ctx.fillText(part, srcp.x, srcp.y - 6);
-		}
-	}
-	health(player){
-		this.ctx.save();
-		this.ctx.scale(...player.box_scale);
-		
-		var rect = player.scale_rect(...player.box_scale);
-		
-		this.ctx.fillStyle = player.hp_color;
-		this.ctx.fillRect(rect.left - 30, rect.top, 25, rect.height);
-		
-		this.ctx.restore();
-	}
-	text(player){
-		this.ctx.save();
-		this.ctx.scale(...player.dist_scale);
-		
-		var rect = player.scale_rect(...player.dist_scale),
-			font_size = 13;
-		
-		this.ctx.font = 'Bold ' + font_size + 'px Tahoma';
-		this.ctx.strokeStyle = '#000';
-		this.ctx.lineWidth = 2.5;
-		this.ctx.textBaseline = 'top';
-		
-		var text = [
-			[
-				[ '#FB8', player.alias ],
-				[ '#FFF', player.clan ? ' [' + player.clan + ']' : '' ],
-			],
-			[
-				[ player.hp_color, player.health + '/' + player.max_health + ' HP' ],
-			],
-			[
-				[ '#FFF', player.weapon.name ],
-				[ '#BBB', '[' ],
-				[ '#FFF', player.ammo ],
-				[ '#BBB', '/' ],
-				[ '#FFF', player.max_ammo ],
-				[ '#BBB', ']' ],
-			],
-		]
-		
-		if(player.target)text.push([ [ '#00F', 'Target' ] ]);
-		
-		this.draw_text(rect.right + 4, rect.top, font_size, text);
-		
-		this.ctx.restore();
-	}
-	crosshair(){
-		this.ctx.save();
-		
-		this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
-		
-		var size = 10;
-		
-		this.ctx.strokeStyle = '#0F0';
-		this.ctx.lineWidth = 1.5;
-		
-		this.ctx.beginPath();
-		this.ctx.moveTo(-size, 0);
-		this.ctx.lineTo(size, 0);
-		this.ctx.moveTo(0, -size);
-		this.ctx.lineTo(0, size);
-		this.ctx.stroke();
-		
-		this.ctx.restore();
-	}
-};
-
-Visual.hooked = Symbol();
-
-module.exports = Visual;
 
 /***/ })
 
