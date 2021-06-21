@@ -9,7 +9,7 @@
 // @grant          none
 // @source         https://github.com/y9x/webpack/
 // @supportURL     https://y9x.github.io/discord/
-// @extracted      Mon, 21 Jun 2021 03:03:59 GMT
+// @extracted      Mon, 21 Jun 2021 05:04:21 GMT
 // @match          *://krunker.io/*
 // @match          *://*.browserfps.com/*
 // @run-at         document-start
@@ -43,8 +43,6 @@ class Main {
 		
 		this.skins = [...Array(5000)].map((e, i) => ({ ind: i, cnt: 1 }));
 		
-		this.eventHandlers();
-		
 		this.menu = __webpack_require__(/*! ./settings.js */ "./settings.js");
 		
 		var self = this;
@@ -61,6 +59,9 @@ class Main {
 			},
 			get target(){
 				return self.target;
+			},
+			get players(){
+				return self.players;
 			},
 			get esp(){
 				return self.config.esp.status;
@@ -92,6 +93,14 @@ class Main {
 			pick_target(){
 				self.target = self.players.filter(player => player.can_target).sort((p1, p2) => self.dist2d(p1, p2) * (p1.frustum ? 1 : 0.5))[0];
 			},
+		};
+		
+		api.on_instruct = () => {	
+			if(this.config.game.auto_lobby && api.has_instruct('connection error', 'game is full', 'kicked by vote', 'disconnected'))location.href = '/';
+			else if(this.config.game.auto_start && api.has_instruct('to play') && (!this.player || !this.player.active)){
+				this.controls.locklessChange(true);
+				this.controls.locklessChange(false);
+			}
 		};
 	}
 	get players(){
@@ -226,15 +235,6 @@ class Main {
 	}
 	dist2d(p1, p2){
 		return utils.dist_center(p1.rect) - utils.dist_center(p2.rect);
-	}
-	eventHandlers(){
-		api.on_instruct = () => {	
-			if(this.config.game.auto_lobby && api.has_instruct('connection error', 'game is full', 'kicked by vote', 'disconnected'))location.href = '/';
-			else if(this.config.game.auto_start && api.has_instruct('to play') && (!this.player || !this.player.active)){
-				this.controls.locklessChange(true);
-				this.controls.locklessChange(false);
-			}
-		};
 	}
 };
 
@@ -977,7 +977,7 @@ exports.api_url = 'https://api.sys32.dev/';
 exports.mm_url = 'https://matchmaker.krunker.io/';
 
 exports.is_frame = window != window.top;
-exports.extracted = 1624244639843;
+exports.extracted = 1624251861420;
 
 // .htaccess for ui testing
 exports.krunker = utils.is_host(location, 'krunker.io', 'browserfps.com') && ['/.htaccess', '/'].includes(location.pathname);
