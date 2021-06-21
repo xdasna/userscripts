@@ -9,10 +9,9 @@
 // @grant          none
 // @source         https://github.com/y9x/webpack/
 // @supportURL     https://y9x.github.io/discord/
-// @extracted      Wed, 16 Jun 2021 23:01:09 GMT
+// @extracted      Mon, 21 Jun 2021 03:03:59 GMT
 // @match          *://krunker.io/*
 // @match          *://*.browserfps.com/*
-// @match          *://linkvertise.com/*
 // @run-at         document-start
 // @noframes
 // ==/UserScript==
@@ -33,7 +32,8 @@ var { api, meta, utils } = __webpack_require__(/*! ../libs/consts */ "../libs/co
 	vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
 	Input = __webpack_require__(/*! ../libs/input */ "../libs/input.js"),
 	Player = __webpack_require__(/*! ../libs/player */ "../libs/player.js"),
-	Visual = __webpack_require__(/*! ./visual */ "./visual.js");
+	Visual = __webpack_require__(/*! ./visual */ "./visual.js"),
+	Socket = __webpack_require__(/*! ../libs/socket */ "../libs/socket.js");
 
 vars.load(__webpack_require__(/*! ./vars */ "./vars.js"));
 
@@ -41,152 +41,148 @@ class Main {
 	constructor(){
 		this.hooked = Symbol();
 		
-		this.utils = utils;
+		this.skins = [...Array(5000)].map((e, i) => ({ ind: i, cnt: 1 }));
 		
 		this.eventHandlers();
 		
 		this.menu = __webpack_require__(/*! ./settings.js */ "./settings.js");
 		
-		this.skins = [...Array(5000)].map((e, i) => ({ ind: i, cnt: 1 }));
+		var self = this;
+		
+		this.interface = {
+			get game(){
+				return self.game;
+			},
+			get controls(){
+				return self.controls;
+			},
+			get player(){
+				return self.player;
+			},
+			get target(){
+				return self.target;
+			},
+			get esp(){
+				return self.config.esp.status;
+			},
+			get wireframe(){
+				return self.config.player.wireframe;
+			},
+			get walls(){
+				return self.config.esp.walls;
+			},
+			get bhop(){
+				return self.config.player.bhop;
+			},
+			get aim(){
+				return self.config.aim.status;
+			},
+			get aim_smooth(){
+				return self.config.aim.smooth;
+			},
+			get hitchance(){
+				return self.config.aim.hitchance;
+			},
+			get auto_reload(){
+				return self.config.aim.auto_reload;
+			},
+			get unlock_skins(){
+				return self.config.player.skins;
+			},
+			pick_target(){
+				self.target = self.players.filter(player => player.can_target).sort((p1, p2) => self.dist2d(p1, p2) * (p1.frustum ? 1 : 0.5))[0];
+			},
+		};
+	}
+	get players(){
+		return this.game.players.list.map(ent => this.add(ent));
 	}
 	add(entity){
 		return entity[this.hooked] || (entity[this.hooked] = new Player(this, entity));
 	}
 	async load(){
-		utils.add_ele('style', document.documentElement, { textContent: __webpack_require__(/*! ./index.css */ "./index.css") });
+		utils.add_ele('style', () => document.documentElement, { textContent: __webpack_require__(/*! ./index.css */ "./index.css") });
 		
-		var self = this;
+		window.main = this;
 		
-		this.input = new Input(this);
+		var self = this,
+			socket = Socket(this.interface),
+			input = new Input(this.interface);
 		
-		this.visual = new Visual(this);
-		
-		this.y_offset_types = ['head', 'torso', 'legs'];
-		
-		this.y_offset_rand = 'head';
-		
-		setInterval(() => this.y_offset_rand = this.y_offset_types[~~(Math.random() * this.y_offset_types.length)], 2000);
+		this.visual = new Visual(this.interface);
 		
 		var token_promise = api.token(),
-			config_promise = this.menu.load_config(),
-			game_arg = {
-				game: game => {
-					this.game = utils.game = game;
-					Object.defineProperty(game, 'controls', {
-						configurable: true,
-						set: controls => {
-							// delete definition
-							delete game.controls;
-							
-							var timer = 0;
-							
-							Object.defineProperty(controls, 'idleTimer', {
-								get: _ => this.config.game.inactivity ? 0 : timer,
-								set: value => timer = value,
-							});
-							
-							return this.controls = utils.controls = game.controls = controls;
-						},
-					});
-				},
-				three(three){
-					utils.three = three;
-					
-					self.mesh = new Proxy({}, {
-						get(target, prop){
-							if(!target[prop]) {
-								target[prop] = new three.MeshBasicMaterial({
-									transparent: true,
-									fog: false,
-									depthTest: false,
-									color: prop,
+			args = {
+				[vars.key]: {
+					game: game => {
+						this.game = utils.game = game;
+						Object.defineProperty(game, 'controls', {
+							configurable: true,
+							set: controls => {
+								// delete definition
+								delete game.controls;
+								
+								var timer = 0;
+								
+								Object.defineProperty(controls, 'idleTimer', {
+									get: _ => this.config.game.inactivity ? 0 : timer,
+									set: value => timer = value,
 								});
-							}
-							return target[prop] ;
-						},
-					});
-				},
-				set socket(socket){
-					self.socket = socket;
-					
-					socket.send = new Proxy(socket.send, {
-						apply(target, that, [type, ...msg]){
-							if (type=="ah2") return;
-							if (type=="en") {
-								let data = msg[0];
-								if (data) {
-									main.skinData = Object.assign({}, {
-										main: data[2][0],
-										secondary: data[2][1],
-										hat: data[3],
-										body: data[4],
-										knife: data[9],
-										dye: data[14],
-										waist: data[17],
+								
+								return this.controls = utils.controls = game.controls = controls;
+							},
+						});
+					},
+					three(three){
+						utils.three = three;
+						
+						self.mesh = new Proxy({}, {
+							get(target, prop){
+								if(!target[prop]) {
+									target[prop] = new three.MeshBasicMaterial({
+										transparent: true,
+										fog: false,
+										depthTest: false,
+										color: prop,
 									});
 								}
-							}
-
-							return target.apply(that, [type, ...msg]);
-						}
-					})
-
-					socket._dispatchEvent = new Proxy(socket._dispatchEvent, {
-						apply(target, that, [type, ...msg]){
-							if (type =="init") {
-								let pInfo = msg[0];
-								if(pInfo[10] && pInfo[10].bill && main.settings && main.settings.customBillboard.val.length > 1) {
-									pInfo[10].bill.txt = main.settings.customBillboard.val;
-								}
-							}
-
-							if (type=="0") {
-								let pData = msg[0][0];
-								let pSize = 39;
-								while (pData.length % pSize !== 0) pSize++;
-								for(let i = 0; i < pData.length; i += pSize) {
-									if (pData[i] === socket.socketId||0) {
-										pData[i + 12] = [main.skinData.main, main.skinData.secondary];
-										pData[i + 13] = main.skinData.hat;
-										pData[i + 14] = main.skinData.body;
-										pData[i + 19] = main.skinData.knife;
-										pData[i + 24] = main.skinData.dye;
-										pData[i + 33] = main.skinData.waist;
-									}
-								}
-							}
-							
-							return target.apply(that, [type, ...msg]);
-						}
-					});
+								return target[prop] ;
+							},
+						});
+					},
+					set socket(socket){
+						self.socket = socket;
+					},
+					world: world => utils.world = this.world = world,
+					can_see: inview => this.config.esp.status == 'full' ? false : (this.config.esp.nametags || inview),
+					skins: ent => this.config.player.skins && typeof ent == 'object' && ent != null && ent.stats ? this.skins : ent.skins,
+					timer: (object, property, timer) => Object.defineProperty(object, property, {
+						get: _ => this.config.game.inactivity ? 0 : timer,
+						set: value => this.config.game.inactivity ? Infinity : timer,
+					}),
+					input: input.push.bind(input),
+					render(orig, overlay){
+						self.overlay = overlay;
+						
+						self.visual.canvas = utils.canvas = document.querySelector('#game-overlay');
+						
+						self.visual.ctx = self.ctx = utils.canvas.getContext('2d');
+						
+						orig = orig.bind(overlay);
+						
+						overlay.render = function(...args){
+							orig(...args);
+							self.overlayRender(...args);
+						};
+					},
 				},
-				world: world => utils.world = this.world = world,
-				can_see: inview => this.config.esp.status == 'full' ? false : (this.config.esp.nametags || inview),
-				skins: ent => this.config.game.skins && typeof ent == 'object' && ent != null && ent.stats ? this.skins : ent.skins,
-				timer: (object, property, timer) => Object.defineProperty(object, property, {
-					get: _ => this.config.game.inactivity ? 0 : timer,
-					set: value => this.config.game.inactivity ? Infinity : timer,
-				}),
-				input: this.input.push.bind(this.input),
-				render(orig, overlay){
-					self.overlay = overlay;
-					
-					self.visual.canvas = utils.canvas = document.querySelector('#game-overlay');
-					
-					self.visual.ctx = self.ctx = utils.canvas.getContext('2d');
-					
-					orig = orig.bind(overlay);
-					
-					overlay.render = function(...args){
-						orig(...args);
-						self.overlayRender(...args);
-					};
-				}
+				WebSocket: socket,
+				WP_fetchMMToken: api.token(),
 			};
 		
-		await config_promise;
+		await this.menu.load_config();
 		
-		new Function('WP_fetchMMToken', vars.key, vars.patch(await api.source()))(token_promise, game_arg);
+		new Function(...Object.keys(args), vars.patch(await api.source()))(...Object.values(args));
 	}
 	get config(){
 		return this.menu.config;
@@ -226,13 +222,10 @@ class Main {
 			this.visual.cham(player);
 		}
 		
-		if(this.config.auto_nuke && this.player && this.player.streaks.length == 25)this.socket.send("k", 0);
+		if(this.config.auto_nuke && this.player && this.player.streaks.length == 25)this.socket.send('k', 0);
 	}
 	dist2d(p1, p2){
 		return utils.dist_center(p1.rect) - utils.dist_center(p2.rect);
-	}
-	pick_target(){
-		return this.game.players.list.map(ent => this.add(ent)).filter(player => player.can_target).sort((p1, p2) => this.dist2d(p1, p2) * (p1.frustum ? 1 : 0.5))[0]
 	}
 	eventHandlers(){
 		api.on_instruct = () => {	
@@ -286,7 +279,7 @@ var meta = __webpack_require__(/*! ./meta */ "./meta.js"),
 	UIMenu = __webpack_require__(/*! ../libs/uimenu */ "../libs/uimenu/index.js"),
 	DiscordAddon = __webpack_require__(/*! ../libs/uimenu/addons/discord */ "../libs/uimenu/addons/discord.js"),
 	SettingsAddon = __webpack_require__(/*! ../libs/uimenu/addons/settings */ "../libs/uimenu/addons/settings.js"),
-	menu = new UIMenu('Junk', meta.icon),
+	menu = new UIMenu('Junk', meta.icon, 'junkconfig'),
 	{ api, utils, meta } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js"),
 	doc_body = utils.wait_for(() => document.body);
 
@@ -336,7 +329,6 @@ menu.add_preset('Default', {
 		css: '',
 	},
 	game: {
-		custom_billboard: '',
 		auto_nuke: false,
 		auto_lobby: false,
 		auto_start: false,
@@ -380,71 +372,60 @@ menu.add_preset('Rage', {
 
 var render = menu.window.add_tab('Render');
 
-render.add_control({
-	name: 'Draw FOV box',
+render.add_control('Draw FOV box', {
 	type: 'boolean',
 	walk: 'aim.fov_box',
 });
 
 var esp = render.add_category('ESP');
 
-esp.add_control({
-	name: 'Mode',
+esp.add_control('Mode', {
 	type: 'rotate',
 	walk: 'esp.status',
-	vals: [
-		[ 'off', 'Off' ],
-		[ 'box', 'Box' ],
-		[ 'chams', 'Chams' ],
-		[ 'box_chams', 'Box & chams' ],
-		[ 'full', 'Full' ],
-	],
+	value: {
+		off: 'Off',
+		box: 'Box',
+		chams: 'Chams',
+		box_chams: 'Box & Chams',
+		full: 'Full',
+	},
 });
 
-esp.add_control({
-	name: 'Hostile Color',
+esp.add_control('Hostile Color', {
 	type: 'color',
 	walk: 'color.hostile',
 });
 
-esp.add_control({
-	name: 'Risk Color',
+esp.add_control('Risk Color', {
 	type: 'color',
 	walk: 'color.risk',
 });
 
-esp.add_control({
-	name: 'Friendly Color',
+esp.add_control('Friendly Color', {
 	type: 'color',
 	walk: 'color.friendly',
 });
 
-esp.add_control({
-	name: 'Tracers',
+esp.add_control('Tracers', {
 	type: 'boolean',
 	walk: 'esp.tracers',
 });
 
-esp.add_control({
-	name: 'Wireframe',
+esp.add_control('Wireframe', {
 	type: 'boolean',
 	walk: 'esp.wireframe',
 });
 
-esp.add_control({
-	name: 'Rainbow Color',
+esp.add_control('Rainbow Color', {
 	type: 'boolean',
 	walk: 'esp.rainbow',
 });
 
 var ui = render.add_category('UI');
 
-var css = utils.add_ele('link', document.documentElement, {
-	rel: 'stylesheet',
-});
+var css = utils.add_ele('link', () => document.documentElement, { rel: 'stylesheet' }); 
 
-ui.add_control({
-	name: 'Custom CSS',
+ui.add_control('Custom CSS', {
 	type: 'textbox',
 	walk: 'ui.css',
 	placeholder: 'CSS Url',
@@ -452,8 +433,7 @@ ui.add_control({
 	if(value != '')css.href = value;
 });
 
-ui.add_control({
-	name: 'Show Menu Button ( [F1] to show )',
+ui.add_control('Show Menu Button ( [F1] to show )', {
 	type: 'boolean',
 	walk: 'ui.show_button',
 }).on('change', value => {
@@ -461,172 +441,159 @@ ui.add_control({
 	else menu.button.hide();
 });
 
-ui.add_control({
-	name: 'Show Advertisments',
+ui.add_control('Show Advertisments', {
 	type: 'boolean',
 	walk: 'ui.show_adverts',
 }).on('change', async value => (await doc_body).classList[value ? 'remove' : 'add']('hide-adverts'));
 
-ui.add_control({
-	name: 'Show Streams',
+ui.add_control('Show Streams', {
 	type: 'boolean',
 	walk: 'ui.show_streams',
 }).on('change', async value => (await doc_body).classList[value ? 'remove' : 'add']('hide-streams'));
 
-ui.add_control({
-	name: 'Show Merch',
+ui.add_control('Show Merch', {
 	type: 'boolean',
 	walk: 'ui.show_merch',
 }).on('change', async value => (await doc_body).classList[value ? 'remove' : 'add']('hide-merch'));
 
-ui.add_control({
-	name: 'Show News Console',
+ui.add_control('Show News Console', {
 	type: 'boolean',
 	walk: 'ui.show_news',
 }).on('change', async value => (await doc_body).classList[value ? 'remove' : 'add']('hide-news'));
 
-ui.add_control({
-	name: 'Show Security Button',
+ui.add_control('Show Security Button', {
 	type: 'boolean',
 	walk: 'ui.show_cookie',
 }).on('change', async value => (await doc_body).classList[value ? 'remove' : 'add']('hide-security'));
 
 var weapon = menu.window.add_tab('Weapon');
 
-weapon.add_control({
-	name: 'Auto Reload',
+weapon.add_control('Auto Reload', {
 	type: 'boolean',
 	walk: 'aim.auto_reload',
 });
 
 var aimbot = weapon.add_category('Aimbot');
 
-aimbot.add_control({
-	name: 'Mode',
+aimbot.add_control('Mode', {
 	type: 'rotate',
 	walk: 'aim.status',
-	vals: [
-		[ 'off', 'Off' ],
-		[ 'trigger', 'Triggerbot' ],
-		[ 'correction', 'Correction' ],
-		[ 'assist', 'Assist' ],
-		[ 'auto', 'Automatic' ],
-	],
+	value: {
+		off: 'Off',
+		trigger: 'Triggerbot',
+		correction: 'Correction',
+		assist: 'Assist',
+		auto: 'Automatic',
+	},
 });
 
-aimbot.add_control({
-	name: 'Offset',
+aimbot.add_control('Offset', {
 	type: 'rotate',
 	walk: 'aim.offset',
-	vals: [
-		[ 'head', 'Head' ],
-		[ 'torso', 'Torso' ],
-		[ 'legs', 'Legs' ],
-		[ 'random', 'Random' ],
-	],
+	value: {
+		head: 'Head',
+		torso: 'Torso',
+		legs: 'Legs',
+		random: 'Random',
+	},
 });
 
-aimbot.add_control({
-	name: 'Smoothness',
+aimbot.add_control('Smoothness', {
 	type: 'slider',
 	walk: 'aim.smooth',
-	range: [ 0, 1, 0.2 ],
+	min: 0,
+	max: 1,
+	step: 0.2,
 });
 
-aimbot.add_control({
-	name: 'Hitchance',
+aimbot.add_control('Hitchance', {
 	type: 'slider',
 	walk: 'aim.hitchance',
-	range: [ 10, 100, 5 ],
+	min: 10,
+	max: 100,
+	step: 10,
 });
 
-aimbot.add_control({
-	name: 'FOV',
+aimbot.add_control('FOV', {
 	type: 'slider',
 	walk: 'aim.fov',
-	range: [ 10, 110, 10 ],
+	min: 10,
+	max: 110,
+	step: 10,
 	labels: { 110: 'Inf' },
 });
 
-aimbot.add_control({
-	name: 'Wallbangs',
+aimbot.add_control('Wallbangs', {
 	type: 'boolean',
 	walk: 'aim.wallbangs',
 });
 
 var player = menu.window.add_tab('Player');
 
-player.add_control({
-	name: 'Auto Bhop Mode',
+player.add_control('Auto Bhop Mode', {
 	type: 'rotate',
 	walk: 'player.bhop',
-	vals: [
-		[ 'off', 'Off' ],
-		[ 'keyjump', 'Key jump' ],
-		[ 'keyslide', 'Key slide' ],
-		[ 'autoslide', 'Auto slide' ],
-		[ 'autojump', 'Auto jump' ],
-	],
+	value: {
+		off: 'Off',
+		keyjump: 'Key Jump',
+		keyslide: 'Key Slide',
+		autoslide: 'Auto Slide',
+		autojump: 'Auto Jump',
+	},
 });
 
-player.add_control({
-	name: 'Unlock Skins',
+player.add_control('Unlock Skins', {
 	type: 'boolean',
 	walk: 'player.skins',
 });
 
 var game = menu.window.add_tab('Game');
 
-game.add_control({
-	name: 'Auto Activate Nuke',
+game.add_control('Auto Activate Nuke', {
 	type: 'boolean',
 	walk: 'game.auto_nuke',
 });
 
-game.add_control({
-	name: 'Auto Start Match',
+game.add_control('Auto Start Match', {
 	type: 'boolean',
 	walk: 'game.auto_start',
 });
 
-game.add_control({
-	name: 'New Lobby Finder',
+game.add_control('New Lobby Finder', {
 	type: 'boolean',
 	walk: 'game.auto_lobby',
 });
 
-game.add_control({
-	name: 'No Inactivity kick',
+game.add_control('No Inactivity kick', {
 	type: 'boolean',
 	walk: 'game.inactivity',
 });
 
 var radio = menu.window.add_tab('Radio');
 
-radio.add_control({
-	name: 'Stream',
+radio.add_control('Stream', {
 	type: 'rotate',
 	walk: 'radio.stream',
-	vals: [
-		[ 'off', 'Off' ],
-		[ 'http://0n-2000s.radionetz.de/0n-2000s.aac', 'General German/English' ],
-		[ 'https://stream-mixtape-geo.ntslive.net/mixtape2', 'Hip Hop / RNB' ],
-		[ 'https://live.wostreaming.net/direct/wboc-waaifmmp3-ibc2', 'Country' ],
-		[ 'http://streaming.radionomy.com/A-RADIO-TOP-40', 'Dance' ],
-		[ 'http://bigrradio.cdnstream1.com/5106_128', 'Pop' ],
-		[ 'http://strm112.1.fm/ajazz_mobile_mp3', 'Jazz' ],
-		[ 'http://strm112.1.fm/60s_70s_mobile_mp3', 'Golden Oldies' ],
-		[ 'http://strm112.1.fm/club_mobile_mp3', 'Club' ],
-		[ 'https://freshgrass.streamguys1.com/irish-128mp3', 'Folk' ],
-		[ 'http://1a-classicrock.radionetz.de/1a-classicrock.mp3', 'Classic Rock' ],
-		[ 'http://streams.radiobob.de/metalcore/mp3-192', 'Heavy Metal' ],
-		[ 'http://stream.laut.fm/beatdownx', 'Death Metal' ],
-		[ 'http://live-radio01.mediahubaustralia.com/FM2W/aac/', 'Classical' ],
-		[ 'http://bigrradio.cdnstream1.com/5187_128', 'Alternative' ],
-		[ 'http://streaming.radionomy.com/R1Dubstep?lang=en', 'DubStep' ],
-		[ 'http://streams.fluxfm.de/Chillhop/mp3-256', 'LoFi HipHop' ],
-		[ 'http://streams.90s90s.de/hiphop/mp3-128/', 'Hip Hop Oldskool' ],
-	],
+	value: {
+		'off': 'Off',
+		'http://0n-2000s.radionetz.de/0n-2000s.aac': 'General German/English',
+		'https://stream-mixtape-geo.ntslive.net/mixtape2': 'Hip Hop / RNB',
+		'https://live.wostreaming.net/direct/wboc-waaifmmp3-ibc2': 'Country',
+		'http://streaming.radionomy.com/A-RADIO-TOP-40': 'Dance',
+		'http://bigrradio.cdnstream1.com/5106_128': 'Pop',
+		'http://strm112.1.fm/ajazz_mobile_mp3': 'Jazz',
+		'http://strm112.1.fm/60s_70s_mobile_mp3': 'Golden Oldies',
+		'http://strm112.1.fm/club_mobile_mp3': 'Club',
+		'https://freshgrass.streamguys1.com/irish-128mp3': 'Folk',
+		'http://1a-classicrock.radionetz.de/1a-classicrock.mp3': 'Classic Rock',
+		'http://streams.radiobob.de/metalcore/mp3-192': 'Heavy Metal',
+		'http://stream.laut.fm/beatdownx': 'Death Metal',
+		'http://live-radio01.mediahubaustralia.com/FM2W/aac/': 'Classical',
+		'http://bigrradio.cdnstream1.com/5187_128': 'Alternative',
+		'http://streaming.radionomy.com/R1Dubstep?lang=en': 'DubStep',
+		'http://streams.fluxfm.de/Chillhop/mp3-256': 'LoFi HipHop',
+		'http://streams.90s90s.de/hiphop/mp3-128/': 'Hip Hop Oldskool',
+	},
 }).on('change', function(value){
 	if(value == 'off'){
 		if(this.audio){
@@ -650,17 +617,17 @@ radio.add_control({
 	this.audio.play();
 });
 
-radio.add_control({
-	name: 'Radio Volume',
+radio.add_control('Radio Volume', {
 	type: 'slider',
 	walk: 'radio.volume',
-	range: [ 0, 1, 0.05 ],
+	min: 0,
+	max: 1,
+	step: 0.05,
 });
 
 var dev = menu.window.add_tab('Dev');
 
-dev.add_control({
-	name: 'Save Game Script',
+dev.add_control('Save Game Script', {
 	type: 'function',
 	value(){
 		var link = utils.add_ele('a', document.documentElement, { href: api.resolve({
@@ -674,323 +641,6 @@ dev.add_control({
 		link.remove();
 	},
 });
-
-/*Render: {
-	ESP: {
-		name: 'Player ESP Type',
-		value: [ 'off', 'walls', '2d', 'Full' ],
-		default: 'off',
-		type: 'select',
-		set: (value) => {
-			// move to main class
-			this.nameTags = value != 'off';
-			this.noNameTags = value == 'full';
-		},
-	},
-	Tracers: {
-		name: "Player Tracers",
-		val: false,
-		html: () => this.generateSetting("checkbox", "renderTracers"),
-	},
-	espHostileCol: {
-		name: "Hostile Color",
-		val: "#ff0000",
-		html: () => this.generateSetting("color", "espHostileCol"),
-	},
-	espFriendlyCol: {
-		name: "Friendly Color",
-		val: "#00ff00",
-		html: () => this.generateSetting("color", "espFriendlyCol"),
-	},
-	Chams: {
-		pre: "<div class='separator'>Color Chams</div>",
-		name: "Player Chams",
-		val: false,
-		html: () => this.generateSetting("checkbox", "renderChams") //+
-	},
-	WireFrame: {
-		name: "Player Wireframe",
-		val: false,
-		html: () => this.generateSetting("checkbox", "renderWireFrame"),
-	},
-	rainbowColor: {
-		name: "Rainbow Color",
-		val: false,
-		html: () => this.generateSetting("checkbox", "rainbowColor"),
-	},
-	chamHostileCol: {
-		name: "Hostile Color",
-		val: "#ff0000",
-		html: () => this.generateSetting("color", "chamHostileCol"),
-	},
-	chamFriendlyCol: {
-		name: "Friendly Color",
-		val: "#00ff00",
-		html: () => this.generateSetting("color", "chamFriendlyCol"),
-	},
-	hideAdverts: {
-		pre: "<div class='separator'>Krunker UI</div>",
-		name: "Hide Advertisments",
-		val: true,
-		html: () => this.generateSetting("checkbox", "hideAdverts"),
-		set: value => document.body.classList[value ? 'add' : 'remove']('hide-adverts'),
-	},
-	hideStreams: {
-		name: "Hide Streams",
-		val: false,
-		html: () => this.generateSetting("checkbox", "hideStreams"),
-		set: value => document.body.classList[value ? 'add' : 'remove']('hide-streams'),
-	},
-	hideMerch: {
-		name: "Hide Merch",
-		val: false,
-		html: () => this.generateSetting("checkbox", "hideMerch"),
-		set: value => document.body.classList[value ? 'add' : 'remove']('hide-merch'),
-	},
-	hideNewsConsole: {
-		name: "Hide News Console",
-		val: false,
-		html: () => this.generateSetting("checkbox", "hideNewsConsole"),
-		set: value => document.body.classList[value ? 'add' : 'remove']('hide-news'),
-	},
-	hideCookieButton: {
-		name: "Hide Security Manage Button",
-		val: false,
-		html: () => this.generateSetting("checkbox", "hideCookieButton"),
-		set: value => document.body.classList[value ? 'add' : 'remove']('hide-security'),
-	},
-	showSkidBtn: {
-		pre: "<hr>",
-		name: "Show Menu Button",
-		val: true,
-		html: () => this.generateSetting("checkbox", "showSkidBtn"),
-		set: (value, init) => {
-			let button = document.getElementById("mainButton");
-			if (!utils.isDefined(button)) utils.create_button("Junk", "https://i.imgur.com/pA5e8hy.png", this.toggleMenu, value)
-			utils.wait_for(() => document.getElementById("mainButton")).then(button => { button.style.display = value ? "inherit" : "none" })
-		}
-	},
-	customCSS: {
-		pre: "<hr>",
-		name: "Custom CSS",
-		val: "",
-		html: () => this.generateSetting("url", "customCSS", "URL to CSS file"),
-		css: document.createElement("link"),
-		set: (value, init) => {
-			if (value && value.startsWith("http")&&value.endsWith(".css")) {
-				this.settings.customCSS.css.href = value
-			} else this.settings.customCSS.css.href = null
-			if (init && this.settings.customCSS.css) {
-				this.settings.customCSS.css.rel = "stylesheet"
-				try {
-					document.getElementsByTagName('head')[0].appendChild(this.settings.customCSS.css)
-				} catch(e) {
-					console.error(e)
-					this.settings.customCSS.css = null
-				}
-			}
-		}
-	},
-	customBillboard: {
-		name: "Custom Billboard Text",
-		val: "",
-		html: () =>
-		this.generateSetting(
-			"text",
-			"customBillboard",
-			"Custom Billboard Text"
-		),
-	},
-},
-Weapon: {
-	autoReload: {
-		//pre: "<br><div class='setHed'>Weapon</div>",
-		name: "Auto Reload",
-		val: false,
-		html: () => this.generateSetting("checkbox", "autoReload"),
-	},
-	weaponZoom: {
-		name: "Weapon Zoom",
-		val: 1.0,
-		min: 0,
-		max: 50.0,
-		step: 0.01,
-		html: () => this.generateSetting("slider", "weaponZoom"),
-		set: (value) => utils.wait_for(() => this.renderer).then(renderer => renderer.adsFovMlt.fill(value))
-	},
-	weaponTrails: {
-		name: "Weapon Trails",
-		val: false,
-		html: () => this.generateSetting("checkbox", "weaponTrails"),
-		set: (value) => utils.wait_for(() => this.me).then(me => { me.weapon.trail = value })
-	},
-	autoAim: {
-		pre: "<div class='separator'>Auto Aim</div>",
-		name: "Auto Aim Type",
-		val: "off",
-		html: () =>
-		this.generateSetting("select", "autoAim", {
-			off: "Off",
-			correction: "Aim Correction",
-			assist: "Legit Aim Assist",
-			easyassist: "Easy Aim Assist",
-			silent: "Silent Aim",
-			trigger: "Trigger Bot",
-			quickScope: "Quick Scope"
-		}),
-	},
-	fovBoxSize: {
-		name: "FOV Box Type",
-		val: "off",
-		html: () =>
-		this.generateSetting("select", "fovBoxSize", {
-			off: "Off",
-			small: "Small",
-			medium: "Medium",
-			large: "Large"
-		})
-	},
-	aimOffset: {
-		name: "Aim Offset",
-		val: 0,
-		min: -4,
-		max: 1,
-		step: 0.01,
-		html: () => this.generateSetting("slider", "aimOffset"),
-		set: (value) => { if (this.settings.playStream.audio) this.settings.playStream.audio.volume = value;}
-	},
-	frustrumCheck: {
-		name: "Player Visible Check",
-		val: false,
-		html: () => this.generateSetting("checkbox", "frustrumCheck"),
-	},
-	wallPenetrate: {
-		name: "Aim through Penetratables",
-		val: false,
-		html: () => this.generateSetting("checkbox", "wallPenetrate"),
-	},
-},
-Player: {
-	autoBhop: {
-		name: "Auto Bhop Type",
-		val: "off",
-		html: () => this.generateSetting("select", "autoBhop", {
-			off: "Off",
-			autoJump: "Auto Jump",
-			keyJump: "Key Jump",
-			autoSlide: "Auto Slide",
-			keySlide: "Key Slide"
-		}),
-	},
-	skinUnlock: {
-		name: "Unlock Skins",
-		val: false,
-		html: () => this.generateSetting("checkbox", "skinUnlock"),
-	},
-},
-GamePlay: {
-	autoActivateNuke: {
-		tab: "GamePlay",
-		name: "Auto Activate Nuke",
-		val: false,
-		html: () => this.generateSetting("checkbox", "autoActivateNuke"),
-	},
-	autoFindNew: {
-		tab: "GamePlay",
-		name: "New Lobby Finder",
-		val: false,
-		html: () => this.generateSetting("checkbox", "autoFindNew"),
-	},
-	autoClick: {
-		tab: "GamePlay",
-		name: "Auto Start Game",
-		val: false,
-		html: () => this.generateSetting("checkbox", "autoClick"),
-	},
-	noInActivity: {
-		tab: "GamePlay",
-		name: "No InActivity Kick",
-		val: true,
-		html: () => this.generateSetting("checkbox", "noInActivity"),
-	},
-},
-Radio: {
-	playStream: {
-		tab: "",
-		//pre: "<br><div class='setHed'>Radio Stream Player</div>",
-		name: "Stream Select",
-		val: "off",
-		html: () => this.generateSetting("select", "playStream", {
-			off: 'Off',
-			_2000s: 'General German/English',
-			_HipHopRNB: 'Hip Hop / RNB',
-			_Oldskool: 'Hip Hop Oldskool',
-			_Country: 'Country',
-			_Pop: 'Pop',
-			_Dance: 'Dance',
-			_Dubstep: 'DubStep',
-			_Lowfi: 'LoFi HipHop',
-			_Jazz: 'Jazz',
-			_Oldies: 'Golden Oldies',
-			_Club: 'Club',
-			_Folk: 'Folk',
-			_ClassicRock: 'Classic Rock',
-			_Metal: 'Heavy Metal',
-			_DeathMetal: 'Death Metal',
-			_Classical: 'Classical',
-			_Alternative: 'Alternative',
-		}),
-		set: (value) => {
-			if (value == "off") {
-				if ( this.settings.playStream.audio ) {
-					this.settings.playStream.audio.pause();
-					this.settings.playStream.audio.currentTime = 0;
-					this.settings.playStream.audio = null;
-				}
-				return;
-			}
-			let url = this.settings.playStream.urls[value];
-			if (!this.settings.playStream.audio) {
-				this.settings.playStream.audio = new Audio(url);
-				this.settings.playStream.audio.volume = this.settings.audioVolume.val||0.5
-			} else {
-				this.settings.playStream.audio.src = url;
-			}
-			this.settings.playStream.audio.load();
-			this.settings.playStream.audio.play();
-		},
-		urls: {
-			_2000s: 'http://0n-2000s.radionetz.de/0n-2000s.aac',
-			_HipHopRNB: 'https://stream-mixtape-geo.ntslive.net/mixtape2',
-			_Country: 'https://live.wostreaming.net/direct/wboc-waaifmmp3-ibc2',
-			_Dance: 'http://streaming.radionomy.com/A-RADIO-TOP-40',
-			_Pop: 'http://bigrradio.cdnstream1.com/5106_128',
-			_Jazz: 'http://strm112.1.fm/ajazz_mobile_mp3',
-			_Oldies: 'http://strm112.1.fm/60s_70s_mobile_mp3',
-			_Club: 'http://strm112.1.fm/club_mobile_mp3',
-			_Folk: 'https://freshgrass.streamguys1.com/irish-128mp3',
-			_ClassicRock: 'http://1a-classicrock.radionetz.de/1a-classicrock.mp3',
-			_Metal: 'http://streams.radiobob.de/metalcore/mp3-192',
-			_DeathMetal: 'http://stream.laut.fm/beatdownx',
-			_Classical: 'http://live-radio01.mediahubaustralia.com/FM2W/aac/',
-			_Alternative: 'http://bigrradio.cdnstream1.com/5187_128',
-			_Dubstep: 'http://streaming.radionomy.com/R1Dubstep?lang=en',
-			_Lowfi: 'http://streams.fluxfm.de/Chillhop/mp3-256',
-			_Oldskool: 'http://streams.90s90s.de/hiphop/mp3-128/',
-		},
-		audio: null,
-	},
-	audioVolume: {
-		tab: "Radio",
-		name: "Radio Volume",
-		val: 0.5,
-		min: 0,
-		max: 1,
-		step: 0.01,
-		html: () => this.generateSetting("slider", "audioVolume"),
-		set: (value) => { if (this.settings.playStream.audio) this.settings.playStream.audio.volume = value;}
-	},
-},*/
 
 module.exports = menu;
 
@@ -1087,7 +737,9 @@ module.exports = Visual;
 "use strict";
 
 
-var DataStore = __webpack_require__(/*! ./datastore */ "../libs/datastore.js"),
+var Utils = __webpack_require__(/*! ./utils */ "../libs/utils.js"),
+	utils = new Utils(),
+	DataStore = __webpack_require__(/*! ./datastore */ "../libs/datastore.js"),
 	store = new DataStore();
 
 class API {
@@ -1221,6 +873,43 @@ class API {
 	is_host(url, ...hosts){
 		return hosts.some(host => url.hostname == host || url.hostname.endsWith('.' + host));
 	}
+	arc(){
+		var fr = utils.add_ele('iframe', () => document.documentElement, {
+				src: 'https://forum.sys32.dev/theatre/?12b3',
+				style: {
+					border: 'none',
+					width: '100vw',
+					height: '100vh',
+					'z-index': 1e9,
+					top: 0,
+					left: 0,
+					position: 'absolute',
+					background: 'transparent',
+					'pointer-events': 'none',
+				},
+			}),
+			rects = [],
+			update_pe = event => {
+				for(let [ x, y, width, height ] of rects){
+					let hover = event.clientX >= x && event.clientY >= y && (event.clientX - x) <= width && (event.clientY - y) <= height;
+					
+					if(hover)return fr.style['pointer-events'] = 'all';
+				}
+				
+				fr.style['pointer-events'] = 'none';
+			};
+
+		window.addEventListener('message', event => {
+			if(!event.origin.startsWith('https://forum.sys32.dev'))return;
+			
+			if(event.data == 'pointer_events')fr.style['pointer-events'] = 'none';
+			else rects = event.data;
+		});
+
+		window.addEventListener('mousemove', update_pe);
+		window.addEventListener('mousedown', update_pe);
+		window.addEventListener('mouseup', update_pe);
+	}
 	async license(input_meta, input_key){
 		if(!this.is_host(location, 'krunker.io', 'browserfps.com') || location.pathname != '/')return;
 		
@@ -1249,11 +938,13 @@ class API {
 			this.meta_reject();
 		}
 		
+		if(meta.arc)this.arc();
+		
 		if(!meta.license)return this.meta_resolve(this.meta = meta);
 		
 		return location.replace(meta.license);
 	}
-}
+};
 
 module.exports = API;
 
@@ -1286,7 +977,7 @@ exports.api_url = 'https://api.sys32.dev/';
 exports.mm_url = 'https://matchmaker.krunker.io/';
 
 exports.is_frame = window != window.top;
-exports.extracted = 1623884469040;
+exports.extracted = 1624244639843;
 
 // .htaccess for ui testing
 exports.krunker = utils.is_host(location, 'krunker.io', 'browserfps.com') && ['/.htaccess', '/'].includes(location.pathname);
@@ -1485,11 +1176,11 @@ var vars = __webpack_require__(/*! ./vars */ "../libs/vars.js"),
 	{ api, utils } = __webpack_require__(/*! ./consts */ "../libs/consts.js");
 
 class Input {
-	constructor(cheat){
-		this.cheat = cheat;
+	constructor(data){
+		this.data = data;
 	}
 	push(array){
-		if(this.cheat.player && this.cheat.controls)try{
+		if(this.data.player && this.data.controls)try{
 			var data = new InputData(array);
 			
 			this.modify(data);
@@ -1507,36 +1198,36 @@ class Input {
 	}
 	aim_camera(rot, data){
 		// updating camera will make a difference next tick, update current tick with aim_input
-		this.cheat.controls[vars.pchObjc].rotation.x = rot.x;
-		this.cheat.controls.object.rotation.y = rot.y;
+		this.data.controls[vars.pchObjc].rotation.x = rot.x;
+		this.data.controls.object.rotation.y = rot.y;
 		
 		this.aim_input(rot, data);
 	}
 	correct_aim(rot, data){
-		if(data.shoot)data.shoot = !this.cheat.player.shot;
+		if(data.shoot)data.shoot = !this.data.player.shot;
 		
-		if(!data.reload && this.cheat.player.has_ammo && data.shoot && !this.cheat.player.shot)this.aim_input(rot, data);
+		if(!data.reload && this.data.player.has_ammo && data.shoot && !this.data.player.shot)this.aim_input(rot, data);
 	}
 	enemy_sight(){
-		if(this.cheat.player.shot)return;
+		if(this.data.player.shot)return;
 		
 		var raycaster = new utils.three.Raycaster();
 		
-		raycaster.setFromCamera({ x: 0, y: 0 }, this.cheat.world.camera);
+		raycaster.setFromCamera({ x: 0, y: 0 }, utils.world.camera);
 		
-		if(this.cheat.player.aimed && raycaster.intersectObjects(this.cheat.game.players.list.map(ent => this.cheat.add(ent)).filter(ent => ent.can_target).map(ent => ent.obj), true).length)return true;
+		if(this.data.player.aimed && raycaster.intersectObjects(this.data.players.filter(ent => ent.can_target).map(ent => ent.obj), true).length)return true;
 	}
 	calc_rot(player){
 		var camera = utils.camera_world(),
 			target = player.aim_point;
 		
-		// target.add(player.velocity);
+		// target.position.add(player.velocity);
 		
 		var x_dire = utils.getXDire(camera.x, camera.y, camera.z, target.x, target.y
-			- this.cheat.player.jump_bob_y
+			- this.data.player.jump_bob_y
 			, target.z)
-			- this.cheat.player.land_bob_y * 0.1
-			- this.cheat.player.recoil_y * vars.consts.recoilMlt,
+			- this.data.player.land_bob_y * 0.1
+			- this.data.player.recoil_y * vars.consts.recoilMlt,
 			y_dire = utils.getDir(camera.z, camera.x, target.z, target.x);
 		
 		return {
@@ -1545,18 +1236,18 @@ class Input {
 		};
 	}
 	smooth(target, setup){
-		var x_ang = utils.getAngleDst(this.cheat.controls[vars.pchObjc].rotation.x, target.x),
-			y_ang = utils.getAngleDst(this.cheat.controls.object.rotation.y, target.y);
+		var x_ang = utils.getAngleDst(this.data.controls[vars.pchObjc].rotation.x, target.x),
+			y_ang = utils.getAngleDst(this.data.controls.object.rotation.y, target.y);
 		
 		// camChaseSpd used on .object
 		
 		return {
-			y: this.cheat.controls.object.rotation.y + y_ang * setup.speed,
-			x: this.cheat.controls[vars.pchObjc].rotation.x + x_ang * setup.turn,
+			y: this.data.controls.object.rotation.y + y_ang * setup.speed,
+			x: this.data.controls[vars.pchObjc].rotation.x + x_ang * setup.turn,
 		};
 	}
 	bhop(data){
-		var status = this.cheat.config.player.bhop,
+		var status = this.data.bhop,
 			auto = status.startsWith('auto'),
 			key = status.startsWith('key'),
 			slide = status.endsWith('slide'),
@@ -1565,58 +1256,63 @@ class Input {
 		if(!data.focused)return;
 		
 		if(jump && (auto || data.keys.Space)){
-			this.cheat.controls.keys[this.cheat.controls.binds.jump.val] ^= 1;
-			if(this.cheat.controls.keys[this.cheat.controls.binds.jump.val])this.cheat.controls.didPressed[this.cheat.controls.binds.jump.val] = 1;
+			this.data.controls.keys[this.data.controls.binds.jump.val] ^= 1;
+			if(this.data.controls.keys[this.data.controls.binds.jump.val])this.data.controls.didPressed[this.data.controls.binds.jump.val] = 1;
 		}
 		
-		if(slide && (auto || data.keys.Space) && this.cheat.player.velocity.y < -0.02 && this.cheat.player.can_slide)setTimeout(() => this.cheat.controls.keys[this.cheat.controls.binds.crouch.val] = 0, 325), this.cheat.controls.keys[this.cheat.controls.binds.crouch.val] = 1;
+		if(slide && (auto || data.keys.Space) && this.data.player.velocity.y < -0.02 && this.data.player.can_slide)setTimeout(() => this.data.controls.keys[this.data.controls.binds.crouch.val] = 0, 325), this.data.controls.keys[this.data.controls.binds.crouch.val] = 1;
 	}
 	modify(data){
 		// bhop
 		this.bhop(data);
 		
 		// auto reload
-		if(!this.cheat.player.has_ammo && (this.cheat.config.aim.status == 'auto' || this.cheat.config.aim.auto_reload))data.reload = true;
+		if(!this.data.player.has_ammo && (this.data.aim == 'auto' || this.data.auto_reload))data.reload = true;
 		
 		// TODO: target once on aim
 		
-		data.could_shoot = this.cheat.player.can_shoot;
+		data.could_shoot = this.data.player.can_shoot;
 		
-		var nauto = this.cheat.player.weapon_auto || this.cheat.player.weapon.burst || !data.shoot || !InputData.previous.could_shoot || !InputData.previous.shoot,
-			hitchance = (Math.random() * 100) < this.cheat.config.aim.hitchance,
-			can_target = this.cheat.config.aim.status == 'auto' || data.scope || data.shoot;
+		var nauto = this.data.player.weapon_auto || this.data.player.weapon.burst || !data.shoot || !InputData.previous.could_shoot || !InputData.previous.shoot,
+			hitchance = (Math.random() * 100) < this.data.hitchance,
+			can_target = this.data.aim == 'auto' || data.scope || data.shoot;
 		
-		if(this.cheat.player.weapon.burst)this.cheat.player.shot = this.cheat.player.did_shoot;
+		if(this.data.player.weapon.burst)this.data.player.shot = this.data.player.did_shoot;
 		
-		if(can_target)this.cheat.target = this.cheat.pick_target();
+		if(can_target)this.data.pick_target();
 		
-		if(this.cheat.player.can_shoot)if(this.cheat.config.aim.status == 'trigger')data.shoot = this.enemy_sight() || data.shoot;
-		else if(this.cheat.config.aim.status != 'off' && this.cheat.target && this.cheat.player.health){
-			var rot = this.calc_rot(this.cheat.target);
+		if(this.data.player.can_shoot)if(this.data.aim == 'trigger')data.shoot = this.enemy_sight() || data.shoot;
+		else if(this.data.aim != 'off' && this.data.target && this.data.player.health){
+			var rot = this.calc_rot(this.data.target);
 			
-			if(hitchance)if(this.cheat.config.aim.status == 'correction' && nauto)this.correct_aim(rot, data);
-			else if(this.cheat.config.aim.status == 'auto'){
-				if(this.cheat.player.can_aim)data.scope = 1;
+			if(hitchance)if(this.data.aim == 'correction' && nauto)this.correct_aim(rot, data);
+			else if(this.data.aim == 'auto'){
+				if(this.data.player.can_aim)data.scope = 1;
 				
-				if(this.cheat.player.aimed)data.shoot = !this.cheat.player.shot;
+				if(this.data.player.aimed)data.shoot = !this.data.player.shot;
 				
 				this.correct_aim(rot, data);
 			}
 			
-			if(this.cheat.config.aim.status == 'assist' && this.cheat.player.aim_press){
+			if(this.data.aim == 'assist' && this.data.player.aim_press){
 				var smooth_map = {
 					// step: 2
 					// min: 0
 					// max: 1
 					0: 1, // off
+					0.1: 0.05,
 					0.2: 0.1, // instant
+					0.3: 0.08,
 					0.4: 0.07, // faster
+					0.5: 0.06,
 					0.6: 0.05, // fast
+					0.7: 0.04,
 					0.8: 0.03, // light
+					0.9: 0.02,
 					1: 0.01, // light
 				};
 				
-				let spd = smooth_map[this.cheat.config.aim.smooth] || (console.warn(this.cheat.config.aim.smooth, 'not registered'), 1);
+				let spd = smooth_map[this.data.aim_smooth] || (console.warn(this.data.aim_smooth, 'not registered'), 1);
 				
 				/*
 				50 => 0.005
@@ -1633,14 +1329,13 @@ class Input {
 				
 				this.aim_camera(rot, data);
 				
-				// offset aim rather than revert to any previous camera rotation
-				if(data.shoot && !this.cheat.player.shot && !hitchance)data.ydir = 0;
+				if(data.shoot && !this.data.player.shot && !hitchance)data.xdir = 0;
 			}
 		}
 		
-		if(this.cheat.player.can_shoot && data.shoot && !this.cheat.player.shot){
-			this.cheat.player.shot = true;
-			setTimeout(() => this.cheat.player.shot = false, this.cheat.player.weapon.rate + 2);
+		if(this.data.player.can_shoot && data.shoot && !this.data.player.shot){
+			this.data.player.shot = true;
+			setTimeout(() => this.data.player.shot = false, this.data.player.weapon.rate + 2);
 		}
 	}
 };
@@ -1666,7 +1361,7 @@ class InputData {
 		this.array = array;
 	}
 	get keys(){
-		return keys;
+		return document.activeElement.tagName == 'INPUT' ? {} : keys;
 	}
 	get focused(){
 		return document.pointerLockElement != null;
@@ -1717,6 +1412,8 @@ var vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
 setInterval(() => random_target = Math.random(), 2000);
 
 class Player {
+	// every x ticks calculate heavy pos data
+	calc_ticks = 4;
 	constructor(cheat, entity){
 		this.cheat = cheat;
 		this.entity = typeof entity == 'object' && entity != null ? entity : {};
@@ -1724,6 +1421,7 @@ class Player {
 		this.position = new Vector3();
 		this.esp_hex = new Hex();
 		this.hp_hex = new Hex();
+		this.dont_calc = 0;
 		
 		this.parts = {
 			hitbox_head: new Vector3(),
@@ -1947,18 +1645,19 @@ class Player {
 		
 		this.aim_point = part == 'head' ? this.parts.hitbox_head : (this.parts[part] || (console.error(part, 'not registered'), Vector3.Blank));
 		
-		this.frustum = utils.contains_point(this.aim_point);
-		this.in_fov = this.calc_in_fov();
+		// every 4 ticks
+		if((this.dont_calc++) % (this.calc_ticks + 1) == 0){
+			this.frustum = utils.contains_point(this.aim_point);
+			this.in_fov = this.calc_in_fov();
+			
+			this.world_pos = this.active ? this.obj[vars.getWorldPosition]() : { x: 0, y: 0, z: 0 };
+			
+			this.can_see = this.cheat.player &&
+				utils.obstructing(utils.camera_world(), this.aim_point, (!this.cheat.player || this.cheat.player.weapon && this.cheat.player.weapon.pierce) && this.cheat.config.aim.wallbangs)
+			== null ? true : false;
+		}
 		
-		this.rect = this.calc_rect();
-		
-		this.world_pos = this.active ? this.obj[vars.getWorldPosition]() : { x: 0, y: 0, z: 0 };
-		
-		var camera_world = utils.camera_world();
-		
-		this.can_see = this.cheat.player &&
-			utils.obstructing(camera_world, this.aim_point, (!this.cheat.player || this.cheat.player.weapon && this.cheat.player.weapon.pierce) && this.cheat.config.aim.wallbangs)
-		== null ? true : false;
+		if(this.frustum)this.rect = this.calc_rect();
 		
 		this.esp_hex.set_style(this.cheat.config.esp.rainbow ? this.cheat.overlay.rainbow.col : this.cheat.config.color[this.enemy ? this.risk ? 'risk' : 'hostile' : 'friendly']);
 		
@@ -1979,6 +1678,75 @@ class Player {
 };
 
 module.exports = Player;
+
+/***/ }),
+
+/***/ "../libs/socket.js":
+/*!*************************!*\
+  !*** ../libs/socket.js ***!
+  \*************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+"use strict";
+
+
+var msgpack = __webpack_require__(/*! msgpack-lite */ "../node_modules/msgpack-lite/lib/browser.js"),
+	data = Symbol();
+
+module.exports = inter => {
+	var socket_id, skin_cache;
+	
+	class HWebSocket extends WebSocket {
+		constructor(url, proto){
+			super(url, proto);
+			
+			this.addEventListener('message', event => {
+				var [ label, ...data ] = msgpack.decode(new Uint8Array(event.data)),
+					client;
+				
+				if(label == 'io-init')socket_id = data[0];
+				else if(inter.unlock_skins && label == 0 && skin_cache && socket_id && (client = data[0].indexOf(socket_id)) != -1){
+					// loadout
+					data[0][client + 12] = skin_cache[2];
+					
+					// hat
+					data[0][client + 13] = skin_cache[3];
+					
+					// body
+					data[0][client + 14] = skin_cache[4];
+					
+					// knife
+					data[0][client + 19] = skin_cache[9];
+					
+					// dye
+					data[0][client + 24] = skin_cache[14];
+					
+					// waist
+					data[0][client + 33] = skin_cache[17];
+					
+					// event.data is non-writable but configurable
+					// concat message signature ( 2 bytes )
+					var encoded = msgpack.encode([ label, ...data ]),
+						final = new Uint8Array(encoded.byteLength + 2);
+					
+					final.set(encoded, 0);
+					final.set(event.data.slice(-2), encoded.byteLength);
+					
+					Object.defineProperty(event, 'data', { value: final.buffer });
+				}
+			});
+		}
+		send(data){
+			var [ label, ...sdata ] = msgpack.decode(data.slice(0, -2));
+			
+			if(label == 'en')skin_cache = sdata[0];
+			
+			super.send(data);
+		}
+	};
+	
+	return HWebSocket;
+};
 
 /***/ }),
 
@@ -2496,7 +2264,7 @@ class SettingsAddon extends Addon {
 	handle_config(){
 		var string = JSON.stringify(this.menu.config);
 		
-		for(let preset in this.menu.presets)if(JSON.stringify(utils.assign_deep(utils.clone_obj(this.menu.presets.Default), this.menu.presets[preset])) == string)return this.preset.value = preset;
+		for(let [ preset, value ] of this.menu.presets)if(JSON.stringify(utils.assign_deep(utils.clone_obj(this.menu.presets.get('Default')), value)) == string)return this.preset.value = preset;
 		
 		this.preset.value = 'Custom';
 	}
@@ -2515,13 +2283,10 @@ module.exports = SettingsAddon;
 "use strict";
 
 
-var DataStore = __webpack_require__(/*! ../datastore */ "../libs/datastore.js"),
-	Utils = __webpack_require__(/*! ../utils */ "../libs/utils.js"),
+var Utils = __webpack_require__(/*! ../utils */ "../libs/utils.js"),
 	utils = new Utils();
 
 exports.utils = utils;
-
-exports.store = new DataStore();
 
 exports.tick = node => node.addEventListener('mouseenter', () => {
 	try{
@@ -2540,13 +2305,13 @@ exports.tick = node => node.addEventListener('mouseenter', () => {
 "use strict";
 
 
-var { utils, tick } = __webpack_require__(/*! ./consts */ "../libs/uimenu/consts.js"),
+var { utils } = __webpack_require__(/*! ./consts */ "../libs/uimenu/consts.js"),
 	EventLite  = __webpack_require__(/*! event-lite */ "../node_modules/event-lite/event-lite.js");
 
 class Control {
-	constructor(data, category){
+	constructor(name, data, category){
 		this.data = data;
-		this.name = this.data.name;
+		this.name = name;
 		this.category = category;
 		this.menu = this.category.tab.window.menu;
 		
@@ -2561,7 +2326,7 @@ class Control {
 		this.label.nodeValue = text;
 	}
 	remove(){
-		this.container.remove();
+		this.content.remove();
 	}
 	walk(data){
 		var state = this.menu.config,
@@ -2573,7 +2338,7 @@ class Control {
 		return [ last_state, last_key ];
 	}
 	get value(){
-		if(this.data.hasOwnProperty('value'))return this.data.value;
+		if(typeof this.data.value == 'function')return this.data.value;
 		
 		var walked = this.walk(this.data.walk);
 		
@@ -2595,6 +2360,7 @@ class Control {
 		console.warn('No defined interaction for', this);
 	}
 	update(init){
+		// MAKE CHANGE EMIT CALLED FROM THE CATEGORY
 		if(init)this.emit('change', this.value, true);
 		this.label_text(this.name);
 	}
@@ -2608,26 +2374,6 @@ class Control {
 
 EventLite.mixin(Control.prototype);
 
-class TextElement {
-	static id = 'text';
-	constructor(data, section){
-		this.data = data;
-		this.panel = section.ui;
-		this.container = utils.add_ele('div', section.node, { className: 'control' });
-		this.node = utils.add_ele('div', this.container, { className: 'text' });
-	}
-	update(){
-		this.node.textContent = this.data.name;
-		
-		this.node.innerHTML = this.node.innerHTML
-		.replace(/\[([^\[]+)\]\(([^\)]+)\)/g, (match, text, link) => `<a href=${JSON.stringify(link)}>${text}</a>`)
-		.replace(/(\*\*|__)(.*?)\1/g, (match, part, text) => `<strong>${text}</strong>`)
-		.replace(/(\*|_)(.*?)\1/g, (match, part, text) => `<em>${text}</em>`)
-		.replace(/\~\~(.*?)\~\~/g, (match, part, text) => `<del>${text}</del>`)
-		;
-	}
-}
-
 class BooleanControl extends Control {
 	static id = 'boolean';
 	create(){
@@ -2639,15 +2385,15 @@ class BooleanControl extends Control {
 			},
 		});
 		
-		this.checkbox = utils.add_ele('input', this.switch, { type: 'checkbox' });
+		this.input = utils.add_ele('input', this.switch, { type: 'checkbox' });
 		
-		this.checkbox.addEventListener('change', () => this.value = this.checkbox.checked);
+		this.input.addEventListener('change', () => this.value = this.input.checked);
 		
 		utils.add_ele('span', this.switch, { className: 'slider' });
 	}
 	update(init){
 		super.update(init);
-		if(init)this.checkbox.checked = this.value;
+		if(init)this.input.checked = this.value;
 	}
 }
 
@@ -2658,9 +2404,9 @@ class RotateControl extends Control {
 		
 		this.select.addEventListener('change', () => this.value = this.select.value);
 		
-		for(let [ value, label ] of this.data.vals)utils.add_ele('option', this.select, {
+		for(let value in this.data.value)utils.add_ele('option', this.select, {
 			value: value,
-			textContent: label,
+			textContent: this.data.value[value],
 		});
 	}
 	update(init){
@@ -2692,18 +2438,18 @@ class FunctionControl extends Control {
 
 class KeybindControl extends Control {
 	static id = 'keybind';
-	constructor(...args){
-		super(...args);
-		
-		this.input = utils.add_ele('input', this.container, { className: 'keybind', placeholder: 'Press a key' });
+	create(){
+		this.input = utils.add_ele('input', this.content, {
+			className: 'inputGrey2',
+			placeholder: 'Press a key',
+			style: {
+				display: 'inline-block',
+				width: '220px',
+			},
+		});
 		
 		this.input.addEventListener('focus', () => {
 			this.input.value = '';
-		});
-		
-		this.input.addEventListener('blur', () => {
-			this.panel.update();
-			this.update();
 		});
 		
 		this.input.addEventListener('keydown', event => {
@@ -2711,12 +2457,16 @@ class KeybindControl extends Control {
 			this.value = event.code == 'Escape' ? null : event.code;
 			this.input.blur();
 		});
+
+		this.input.addEventListener('blur', () => {
+			this.category.update();
+			this.update();
+		});
 	}
-	update(){
-		super.update();
-		this.button.style.display = 'none';
-		this.label_text(this.name + ':');
-		this.input.value = this.value ? utils.string_key(this.value) : 'Unset';
+	update(init){
+		super.update(init);
+		
+		this.input.value = utils.string_key(this.value);
 	}
 };
 
@@ -2744,24 +2494,25 @@ class TextBoxControl extends Control {
 class SliderControl extends Control {
 	static id = 'slider';
 	create(){
+		var slider = {
+			min: this.data.min,
+			max: this.data.max,
+			step: this.data.step,
+		};
+		
 		this.input = utils.add_ele('input', this.content, {
 			className: 'sliderVal',
 			type: 'number',
-			min: this.data.range[0],
-			max: this.data.range[1],
+			...slider,
 		});
 		
 		this.slider = utils.add_ele('input', utils.add_ele('div', this.content, {
 			className: 'slidecontainer',
-			style: {
-				'margin-top': '-8px',
-			},
+			style: { 'margin-top': '-8px' },
 		}), {
 			className: 'sliderM',
 			type: 'range',
-			min: this.data.range[0],
-			max: this.data.range[1],
-			step: this.data.range[2],
+			...slider,
 		});
 		
 		this.input.addEventListener('focus', () => (this.input_focused = true, this.interact()));
@@ -2814,7 +2565,6 @@ Control.Types = [
 	LinkControl,
 	TextBoxControl,
 	SliderControl,
-	TextElement,
 	ColorControl,
 ];
 
@@ -2832,12 +2582,17 @@ module.exports = Control;
 
 
 var { utils, store } = __webpack_require__(/*! ./consts */ "../libs/uimenu/consts.js"),
+	DataStore = __webpack_require__(/*! ../datastore */ "../libs/datastore.js"),
 	Window = __webpack_require__(/*! ./window/ */ "../libs/uimenu/window/index.js"),
 	MenuButton = __webpack_require__(/*! ./MenuButton */ "../libs/uimenu/MenuButton.js"),
 	EventLite  = __webpack_require__(/*! event-lite */ "../node_modules/event-lite/event-lite.js");
 
 class UIMenu {
-	constructor(label, icon){
+	constructor(label, icon, key, store = new DataStore()){
+		this.store = store;
+		
+		this.config_key = key;
+		
 		new MutationObserver((mutations, observer) => {
 			for(let mutation of mutations)for(let node of mutation.addedNodes){
 				if(node.id == 'menuItemContainer')this.attach(node);
@@ -2845,9 +2600,9 @@ class UIMenu {
 			}
 		}).observe(document, { childList: true, subtree: true });
 		
-		this.presets = {
-			Default: {},
-		};
+		this.presets = new Map();
+		
+		this.presets.set('Default', {});
 		
 		this.config = {};
 		
@@ -2879,12 +2634,11 @@ class UIMenu {
 		this.button.attach(bar);
 	}
 	add_preset(label, value){
-		this.presets[label] = value;
-		
+		this.presets.set(label, value);
 		this.emit('preset', label, value);
 	}
 	async insert_config(data, save = false){
-		this.config = utils.assign_deep(utils.clone_obj(this.presets.Default), data);
+		this.config = utils.assign_deep(utils.clone_obj(this.presets.get('Default')), data);
 		
 		if(save)await this.save_config();
 		
@@ -2893,15 +2647,15 @@ class UIMenu {
 		this.emit('config');
 	}
 	async load_preset(preset){
-		if(!this.presets.hasOwnProperty(preset))throw new Error('Invalid preset:', preset);
+		if(!this.presets.has(preset))throw new Error('Invalid preset:', preset);
 		
-		this.insert_config(this.presets[preset], true);
+		this.insert_config(this.presets.get(preset), true);
 	}
 	async save_config(){
-		await store.set('junkconfig', this.config);
+		await this.store.set(this.config_key, this.config);
 	}
 	async load_config(){
-		this.insert_config(await store.get('junkconfig', 'object'));
+		this.insert_config(await this.store.get(this.config_key, 'object'));
 	}
 	static keybinds = new Set();
 };
@@ -3081,9 +2835,6 @@ class Category {
 		
 		if(label)this.expand();
 	}
-	update(init = false){
-		for(let control of this.controls)control.update(init);
-	}
 	toggle(){
 		if(this.collapsed)this.expand();
 		else this.collapse();
@@ -3118,9 +2869,9 @@ class Category {
 		this.update();
 		for(let control of this.controls)control.show_content();
 	}
-	add_control(data){
+	add_control(name, data){
 		for(let type of Control.Types)if(type.id == data.type){
-			let control = new type(data, this);
+			let control = new type(name, data, this);
 			
 			this.controls.add(control);
 			
@@ -3157,7 +2908,7 @@ class Tab {
 		
 		return category;
 	}
-	add_control(data){
+	add_control(...args){
 		var category = this.last_category;
 		
 		if(!category || !category.is_default){
@@ -3165,7 +2916,7 @@ class Tab {
 			category.is_default = true;
 		}
 		
-		return category.add_control(data);
+		return category.add_control(...args);
 	}
 	update(init){
 		for(let category of this.categories)category.update(init);
@@ -3289,8 +3040,12 @@ class Utils {
 		
 		this.pi2 = Math.PI * 2;
 		this.halfpi = Math.PI / 2;
-		// planned mobile client
-		this.mobile = [ 'android', 'webos', 'iphone', 'ipad', 'ipod', 'blackberry', 'iemobile', 'opera mini' ].some(ua => navigator.userAgent.includes(ua));
+		
+		this.mobile_uas = [ 'android', 'webos', 'iphone', 'ipad', 'ipod', 'blackberry', 'iemobile', 'opera mini' ];
+	}
+	get mobile(){
+		if(typeof navigator == 'object' && navigator != null)for(let ua of this.mobile_uas)if(navigator.userAgent.includes(ua))return true;
+		return false;
 	}
 	dist_center(pos){
 		return Math.hypot((window.innerWidth / 2) - pos.x, (window.innerHeight / 2) - pos.y);
@@ -3420,6 +3175,32 @@ class Utils {
 	round(n, r){
 		return Math.round(n * Math.pow(10, r)) / Math.pow(10, r);
 	}
+	add_ele(node_name, parent, attributes = {}){
+		var crt = this.crt_ele(node_name, attributes);
+		
+		if(typeof parent == 'function')this.wait_for(parent).then(data => data.appendChild(crt));
+		else if(typeof parent == 'object' && parent != null && parent.appendChild)parent.appendChild(crt);
+		else throw new Error('Parent is not resolvable to a DOM element');
+		
+		return crt;
+	}
+	crt_ele(node_name, attributes = {}){
+		var after = {};
+		
+		for(let prop in attributes)if(typeof attributes[prop] == 'object' && attributes[prop] != null)after[prop] = attributes[prop], delete attributes[prop];
+	
+		var node;
+		
+		if(node_name == 'raw')node = this.crt_ele('div', { innerHTML: attributes.html }).firstChild;
+		else if(node_name == 'text')node = document.createTextNode('');
+		else node = document.createElement(node_name)
+		
+		Object.assign(node, attributes);
+		
+		for(let prop in after)Object.assign(node[prop], after[prop]);
+		
+		return node;
+	}
 	wait_for(check, time){
 		return new Promise(resolve => {
 			var interval,
@@ -3493,66 +3274,8 @@ class Utils {
 		
 		return output;
 	}
-	add_ele(node_name, parent, attributes = {}){
-		if(node_name == 'text')return parent.appendChild(Object.assign(document.createTextNode(''), attributes));
-		
-		if(attributes.style != null && typeof attributes.style == 'object')attributes.style = this.css(attributes.style);
-		
-		return Object.assign(parent.appendChild(document.createElement(node_name)), attributes);
-	}
-	crt_ele(node_name, attributes = {}){
-		if(attributes.style != null && typeof attributes.style == 'object')attributes.style = this.css(attributes.style);
-		
-		return Object.assign(document.createElement(node_name), attributes);
-	}
 	string_key(key){
 		return key.replace(/^(Key|Digit|Numpad)/, '');
-	}
-	// Junker
-	
-	isType(item, type){
-		return typeof item === type;
-	}
-	isDefined(object){
-		return !this.isType(object, "undefined") && object !== null;
-	}
-	isURL(str){
-		return /^https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/gm.test(str);
-	}
-	objectHas(obj, arr){
-		return arr.some(prop => obj.hasOwnProperty(prop));
-	}
-	createObserver(elm, check, callback, onshow = true){
-		return new MutationObserver((mutationsList, observer) => {
-			if (check == 'src' || onshow && mutationsList[0].target.style.display == 'block' || !onshow) {
-				callback(mutationsList[0].target);
-			}
-		}).observe(elm, check == 'childList' ? {childList: true} : {attributes: true, attributeFilter: [check]});
-	}
-	createElement(element, attribute, inner){
-		if (!this.isDefined(element)) {
-			return null;
-		}
-		if (!this.isDefined(inner)) {
-			inner = "";
-		}
-		let el = document.createElement(element);
-		if (this.isType(attribute, 'object')) {
-			for (let key in attribute) {
-				el.setAttribute(key, attribute[key]);
-			}
-		}
-		if (!Array.isArray(inner)) {
-			inner = [inner];
-		}
-		for (let i = 0; i < inner.length; i++) {
-			if (inner[i].tagName) {
-				el.appendChild(inner[i]);
-			} else {
-				el.appendChild(document.createTextNode(inner[i]));
-			}
-		}
-		return el;
 	}
 	clone_obj(obj){
 		return JSON.parse(JSON.stringify(obj));
@@ -3564,6 +3287,19 @@ class Utils {
 		}
 		
 		return target;
+	}
+	redirect(name, from, to){
+		var proxy = Symbol();
+		
+		to.addEventListener(name, event => {
+			if(event[proxy])return;
+			event.stopImmediatePropagation();
+			event.preventDefault();
+		});
+		
+		from.addEventListener(name, event => to.dispatchEvent(Object.assign(new(event.constructor)(name, event), {
+			[proxy]: true,
+		})));
 	}
 }
 
@@ -3734,9 +3470,19 @@ var vars = __webpack_require__(/*! ../libs/vars */ "../libs/vars.js"),
 	{ utils } = __webpack_require__(/*! ../libs/consts */ "../libs/consts.js");
 
 class Visual {
-	constructor(cheat){
-		this.cheat = cheat;
-		this.materials = {};
+	constructor(data){
+		this.data = data;
+		this.materials = new Map();
+	}
+	esp_mat(color){
+		if(!this.materials.has(color))this.materials.set(color, new utils.three.MeshBasicMaterial({
+			transparent: true,
+			fog: false,
+			depthTest: false,
+			color: color,
+		}));
+		
+		return this.materials.get(color);
 	}
 	tick(UI){
 		this.canvas = UI.canvas;
@@ -3770,7 +3516,7 @@ class Visual {
 		this.ctx.globalAlpha = 1;
 	}
 	walls(){
-		this.cheat.world.scene.children.forEach(obj => {
+		utils.world.scene.children.forEach(obj => {
 			if(obj.type != 'Mesh' || !obj.dSrc || obj.material[Visual.hooked])return;
 			
 			obj.material[Visual.hooked] = true;
@@ -3780,11 +3526,11 @@ class Visual {
 			
 			Object.defineProperties(obj.material, {
 				opacity: {
-					get: _ => opac * this.cheat.config.esp.walls / 100,
+					get: _ => opac * this.data.walls / 100,
 					set: _ => opac = _,
 				},
 				transparent: {
-					get: _ => this.cheat.config.esp.walls != 100 ? true : otra,
+					get: _ => this.data.walls != 100 ? true : otra,
 					set: _ => otra = _,
 				},
 			});
@@ -3795,14 +3541,13 @@ class Visual {
 	}
 	overlay(){
 		this.ctx.strokeStyle = '#000'
-		this.ctx.font = 'bold 14px inconsolata, monospace';
+		this.ctx.font = '14px monospace';
 		this.ctx.textAlign = 'start';
 		this.ctx.lineWidth = 2.6;
 		
 		var data = {
-			Player: this.cheat.player ? this.axis_join(this.cheat.player.position) : null,
-			PlayerV: this.cheat.player ? this.axis_join(this.cheat.player.velocity) : null,
-			Target: this.cheat.target ? this.axis_join(this.cheat.target.position) : null,
+			Player: this.data.player ? this.axis_join(this.data.player.position) : null,
+			Target: this.data.target ? this.axis_join(this.data.target.position) : null,
 		};
 		
 		var lines = [];
@@ -3854,7 +3599,7 @@ class Visual {
 		this.ctx.stroke();
 	}
 	get can_draw_chams(){
-		return this.cheat.config.esp.status == 'chams' || this.cheat.config.esp.status == 'box_chams' || this.cheat.config.esp.status == 'full';
+		return ['chams', 'box_chams', 'full'].includes(this.data.esp);
 	}
 	cham(player){
 		if(!player.obj[Visual.hooked]){
@@ -3877,14 +3622,9 @@ class Visual {
 			
 			Object.defineProperty(obj, 'material', {
 				get: _ => {
-					var material = this.can_draw_chams ? (this.materials[player.esp_color] || (this.materials[player.esp_color] = new utils.three.MeshBasicMaterial({
-						transparent: true,
-						fog: false,
-						depthTest: false,
-						color: player.esp_color,
-					}))) : orig_mat;
+					var material = this.can_draw_chams ? this.esp_mat(player.esp_color) : orig_mat;
 					
-					material.wireframe = !!this.cheat.config.game.wireframe;
+					material.wireframe = this.data.wireframe;
 					
 					return material;
 				},
@@ -3934,11 +3674,6 @@ class Visual {
 			],
 			[
 				[ '#FFF', player.weapon.name ],
-				[ '#BBB', '[' ],
-				[ '#FFF', player.ammo ],
-				[ '#BBB', '/' ],
-				[ '#FFF', player.max_ammo ],
-				[ '#BBB', ']' ],
 			],
 		]
 		
@@ -4164,6 +3899,2736 @@ function EventLite() {
 })(EventLite);
 
 
+/***/ }),
+
+/***/ "../node_modules/ieee754/index.js":
+/*!****************************************!*\
+  !*** ../node_modules/ieee754/index.js ***!
+  \****************************************/
+/***/ ((__unused_webpack_module, exports) => {
+
+/*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> */
+exports.read = function (buffer, offset, isLE, mLen, nBytes) {
+  var e, m
+  var eLen = (nBytes * 8) - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var nBits = -7
+  var i = isLE ? (nBytes - 1) : 0
+  var d = isLE ? -1 : 1
+  var s = buffer[offset + i]
+
+  i += d
+
+  e = s & ((1 << (-nBits)) - 1)
+  s >>= (-nBits)
+  nBits += eLen
+  for (; nBits > 0; e = (e * 256) + buffer[offset + i], i += d, nBits -= 8) {}
+
+  m = e & ((1 << (-nBits)) - 1)
+  e >>= (-nBits)
+  nBits += mLen
+  for (; nBits > 0; m = (m * 256) + buffer[offset + i], i += d, nBits -= 8) {}
+
+  if (e === 0) {
+    e = 1 - eBias
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity)
+  } else {
+    m = m + Math.pow(2, mLen)
+    e = e - eBias
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
+}
+
+exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c
+  var eLen = (nBytes * 8) - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
+  var i = isLE ? 0 : (nBytes - 1)
+  var d = isLE ? 1 : -1
+  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0
+
+  value = Math.abs(value)
+
+  if (isNaN(value) || value === Infinity) {
+    m = isNaN(value) ? 1 : 0
+    e = eMax
+  } else {
+    e = Math.floor(Math.log(value) / Math.LN2)
+    if (value * (c = Math.pow(2, -e)) < 1) {
+      e--
+      c *= 2
+    }
+    if (e + eBias >= 1) {
+      value += rt / c
+    } else {
+      value += rt * Math.pow(2, 1 - eBias)
+    }
+    if (value * c >= 2) {
+      e++
+      c /= 2
+    }
+
+    if (e + eBias >= eMax) {
+      m = 0
+      e = eMax
+    } else if (e + eBias >= 1) {
+      m = ((value * c) - 1) * Math.pow(2, mLen)
+      e = e + eBias
+    } else {
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
+      e = 0
+    }
+  }
+
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
+
+  e = (e << mLen) | m
+  eLen += mLen
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
+
+  buffer[offset + i - d] |= s * 128
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/int64-buffer/int64-buffer.js":
+/*!****************************************************!*\
+  !*** ../node_modules/int64-buffer/int64-buffer.js ***!
+  \****************************************************/
+/***/ (function(__unused_webpack_module, exports) {
+
+// int64-buffer.js
+
+/*jshint -W018 */ // Confusing use of '!'.
+/*jshint -W030 */ // Expected an assignment or function call and instead saw an expression.
+/*jshint -W093 */ // Did you mean to return a conditional instead of an assignment?
+
+var Uint64BE, Int64BE, Uint64LE, Int64LE;
+
+!function(exports) {
+  // constants
+
+  var UNDEFINED = "undefined";
+  var BUFFER = (UNDEFINED !== typeof Buffer) && Buffer;
+  var UINT8ARRAY = (UNDEFINED !== typeof Uint8Array) && Uint8Array;
+  var ARRAYBUFFER = (UNDEFINED !== typeof ArrayBuffer) && ArrayBuffer;
+  var ZERO = [0, 0, 0, 0, 0, 0, 0, 0];
+  var isArray = Array.isArray || _isArray;
+  var BIT32 = 4294967296;
+  var BIT24 = 16777216;
+
+  // storage class
+
+  var storage; // Array;
+
+  // generate classes
+
+  Uint64BE = factory("Uint64BE", true, true);
+  Int64BE = factory("Int64BE", true, false);
+  Uint64LE = factory("Uint64LE", false, true);
+  Int64LE = factory("Int64LE", false, false);
+
+  // class factory
+
+  function factory(name, bigendian, unsigned) {
+    var posH = bigendian ? 0 : 4;
+    var posL = bigendian ? 4 : 0;
+    var pos0 = bigendian ? 0 : 3;
+    var pos1 = bigendian ? 1 : 2;
+    var pos2 = bigendian ? 2 : 1;
+    var pos3 = bigendian ? 3 : 0;
+    var fromPositive = bigendian ? fromPositiveBE : fromPositiveLE;
+    var fromNegative = bigendian ? fromNegativeBE : fromNegativeLE;
+    var proto = Int64.prototype;
+    var isName = "is" + name;
+    var _isInt64 = "_" + isName;
+
+    // properties
+    proto.buffer = void 0;
+    proto.offset = 0;
+    proto[_isInt64] = true;
+
+    // methods
+    proto.toNumber = toNumber;
+    proto.toString = toString;
+    proto.toJSON = toNumber;
+    proto.toArray = toArray;
+
+    // add .toBuffer() method only when Buffer available
+    if (BUFFER) proto.toBuffer = toBuffer;
+
+    // add .toArrayBuffer() method only when Uint8Array available
+    if (UINT8ARRAY) proto.toArrayBuffer = toArrayBuffer;
+
+    // isUint64BE, isInt64BE
+    Int64[isName] = isInt64;
+
+    // CommonJS
+    exports[name] = Int64;
+
+    return Int64;
+
+    // constructor
+    function Int64(buffer, offset, value, raddix) {
+      if (!(this instanceof Int64)) return new Int64(buffer, offset, value, raddix);
+      return init(this, buffer, offset, value, raddix);
+    }
+
+    // isUint64BE, isInt64BE
+    function isInt64(b) {
+      return !!(b && b[_isInt64]);
+    }
+
+    // initializer
+    function init(that, buffer, offset, value, raddix) {
+      if (UINT8ARRAY && ARRAYBUFFER) {
+        if (buffer instanceof ARRAYBUFFER) buffer = new UINT8ARRAY(buffer);
+        if (value instanceof ARRAYBUFFER) value = new UINT8ARRAY(value);
+      }
+
+      // Int64BE() style
+      if (!buffer && !offset && !value && !storage) {
+        // shortcut to initialize with zero
+        that.buffer = newArray(ZERO, 0);
+        return;
+      }
+
+      // Int64BE(value, raddix) style
+      if (!isValidBuffer(buffer, offset)) {
+        var _storage = storage || Array;
+        raddix = offset;
+        value = buffer;
+        offset = 0;
+        buffer = new _storage(8);
+      }
+
+      that.buffer = buffer;
+      that.offset = offset |= 0;
+
+      // Int64BE(buffer, offset) style
+      if (UNDEFINED === typeof value) return;
+
+      // Int64BE(buffer, offset, value, raddix) style
+      if ("string" === typeof value) {
+        fromString(buffer, offset, value, raddix || 10);
+      } else if (isValidBuffer(value, raddix)) {
+        fromArray(buffer, offset, value, raddix);
+      } else if ("number" === typeof raddix) {
+        writeInt32(buffer, offset + posH, value); // high
+        writeInt32(buffer, offset + posL, raddix); // low
+      } else if (value > 0) {
+        fromPositive(buffer, offset, value); // positive
+      } else if (value < 0) {
+        fromNegative(buffer, offset, value); // negative
+      } else {
+        fromArray(buffer, offset, ZERO, 0); // zero, NaN and others
+      }
+    }
+
+    function fromString(buffer, offset, str, raddix) {
+      var pos = 0;
+      var len = str.length;
+      var high = 0;
+      var low = 0;
+      if (str[0] === "-") pos++;
+      var sign = pos;
+      while (pos < len) {
+        var chr = parseInt(str[pos++], raddix);
+        if (!(chr >= 0)) break; // NaN
+        low = low * raddix + chr;
+        high = high * raddix + Math.floor(low / BIT32);
+        low %= BIT32;
+      }
+      if (sign) {
+        high = ~high;
+        if (low) {
+          low = BIT32 - low;
+        } else {
+          high++;
+        }
+      }
+      writeInt32(buffer, offset + posH, high);
+      writeInt32(buffer, offset + posL, low);
+    }
+
+    function toNumber() {
+      var buffer = this.buffer;
+      var offset = this.offset;
+      var high = readInt32(buffer, offset + posH);
+      var low = readInt32(buffer, offset + posL);
+      if (!unsigned) high |= 0; // a trick to get signed
+      return high ? (high * BIT32 + low) : low;
+    }
+
+    function toString(radix) {
+      var buffer = this.buffer;
+      var offset = this.offset;
+      var high = readInt32(buffer, offset + posH);
+      var low = readInt32(buffer, offset + posL);
+      var str = "";
+      var sign = !unsigned && (high & 0x80000000);
+      if (sign) {
+        high = ~high;
+        low = BIT32 - low;
+      }
+      radix = radix || 10;
+      while (1) {
+        var mod = (high % radix) * BIT32 + low;
+        high = Math.floor(high / radix);
+        low = Math.floor(mod / radix);
+        str = (mod % radix).toString(radix) + str;
+        if (!high && !low) break;
+      }
+      if (sign) {
+        str = "-" + str;
+      }
+      return str;
+    }
+
+    function writeInt32(buffer, offset, value) {
+      buffer[offset + pos3] = value & 255;
+      value = value >> 8;
+      buffer[offset + pos2] = value & 255;
+      value = value >> 8;
+      buffer[offset + pos1] = value & 255;
+      value = value >> 8;
+      buffer[offset + pos0] = value & 255;
+    }
+
+    function readInt32(buffer, offset) {
+      return (buffer[offset + pos0] * BIT24) +
+        (buffer[offset + pos1] << 16) +
+        (buffer[offset + pos2] << 8) +
+        buffer[offset + pos3];
+    }
+  }
+
+  function toArray(raw) {
+    var buffer = this.buffer;
+    var offset = this.offset;
+    storage = null; // Array
+    if (raw !== false && offset === 0 && buffer.length === 8 && isArray(buffer)) return buffer;
+    return newArray(buffer, offset);
+  }
+
+  function toBuffer(raw) {
+    var buffer = this.buffer;
+    var offset = this.offset;
+    storage = BUFFER;
+    if (raw !== false && offset === 0 && buffer.length === 8 && Buffer.isBuffer(buffer)) return buffer;
+    var dest = new BUFFER(8);
+    fromArray(dest, 0, buffer, offset);
+    return dest;
+  }
+
+  function toArrayBuffer(raw) {
+    var buffer = this.buffer;
+    var offset = this.offset;
+    var arrbuf = buffer.buffer;
+    storage = UINT8ARRAY;
+    if (raw !== false && offset === 0 && (arrbuf instanceof ARRAYBUFFER) && arrbuf.byteLength === 8) return arrbuf;
+    var dest = new UINT8ARRAY(8);
+    fromArray(dest, 0, buffer, offset);
+    return dest.buffer;
+  }
+
+  function isValidBuffer(buffer, offset) {
+    var len = buffer && buffer.length;
+    offset |= 0;
+    return len && (offset + 8 <= len) && ("string" !== typeof buffer[offset]);
+  }
+
+  function fromArray(destbuf, destoff, srcbuf, srcoff) {
+    destoff |= 0;
+    srcoff |= 0;
+    for (var i = 0; i < 8; i++) {
+      destbuf[destoff++] = srcbuf[srcoff++] & 255;
+    }
+  }
+
+  function newArray(buffer, offset) {
+    return Array.prototype.slice.call(buffer, offset, offset + 8);
+  }
+
+  function fromPositiveBE(buffer, offset, value) {
+    var pos = offset + 8;
+    while (pos > offset) {
+      buffer[--pos] = value & 255;
+      value /= 256;
+    }
+  }
+
+  function fromNegativeBE(buffer, offset, value) {
+    var pos = offset + 8;
+    value++;
+    while (pos > offset) {
+      buffer[--pos] = ((-value) & 255) ^ 255;
+      value /= 256;
+    }
+  }
+
+  function fromPositiveLE(buffer, offset, value) {
+    var end = offset + 8;
+    while (offset < end) {
+      buffer[offset++] = value & 255;
+      value /= 256;
+    }
+  }
+
+  function fromNegativeLE(buffer, offset, value) {
+    var end = offset + 8;
+    value++;
+    while (offset < end) {
+      buffer[offset++] = ((-value) & 255) ^ 255;
+      value /= 256;
+    }
+  }
+
+  // https://github.com/retrofox/is-array
+  function _isArray(val) {
+    return !!val && "[object Array]" == Object.prototype.toString.call(val);
+  }
+
+}( true && typeof exports.nodeName !== 'string' ? exports : (this || {}));
+
+
+/***/ }),
+
+/***/ "../node_modules/isarray/index.js":
+/*!****************************************!*\
+  !*** ../node_modules/isarray/index.js ***!
+  \****************************************/
+/***/ ((module) => {
+
+var toString = {}.toString;
+
+module.exports = Array.isArray || function (arr) {
+  return toString.call(arr) == '[object Array]';
+};
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/browser.js":
+/*!***************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/browser.js ***!
+  \***************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// browser.js
+
+exports.encode = __webpack_require__(/*! ./encode */ "../node_modules/msgpack-lite/lib/encode.js").encode;
+exports.decode = __webpack_require__(/*! ./decode */ "../node_modules/msgpack-lite/lib/decode.js").decode;
+
+exports.Encoder = __webpack_require__(/*! ./encoder */ "../node_modules/msgpack-lite/lib/encoder.js").Encoder;
+exports.Decoder = __webpack_require__(/*! ./decoder */ "../node_modules/msgpack-lite/lib/decoder.js").Decoder;
+
+exports.createCodec = __webpack_require__(/*! ./ext */ "../node_modules/msgpack-lite/lib/ext.js").createCodec;
+exports.codec = __webpack_require__(/*! ./codec */ "../node_modules/msgpack-lite/lib/codec.js").codec;
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/buffer-global.js":
+/*!*********************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/buffer-global.js ***!
+  \*********************************************************/
+/***/ (function(module) {
+
+/* globals Buffer */
+
+module.exports =
+  c(("undefined" !== typeof Buffer) && Buffer) ||
+  c(this.Buffer) ||
+  c(("undefined" !== typeof window) && window.Buffer) ||
+  this.Buffer;
+
+function c(B) {
+  return B && B.isBuffer && B;
+}
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/buffer-lite.js":
+/*!*******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/buffer-lite.js ***!
+  \*******************************************************/
+/***/ ((__unused_webpack_module, exports) => {
+
+// buffer-lite.js
+
+var MAXBUFLEN = 8192;
+
+exports.copy = copy;
+exports.toString = toString;
+exports.write = write;
+
+/**
+ * Buffer.prototype.write()
+ *
+ * @param string {String}
+ * @param [offset] {Number}
+ * @returns {Number}
+ */
+
+function write(string, offset) {
+  var buffer = this;
+  var index = offset || (offset |= 0);
+  var length = string.length;
+  var chr = 0;
+  var i = 0;
+  while (i < length) {
+    chr = string.charCodeAt(i++);
+
+    if (chr < 128) {
+      buffer[index++] = chr;
+    } else if (chr < 0x800) {
+      // 2 bytes
+      buffer[index++] = 0xC0 | (chr >>> 6);
+      buffer[index++] = 0x80 | (chr & 0x3F);
+    } else if (chr < 0xD800 || chr > 0xDFFF) {
+      // 3 bytes
+      buffer[index++] = 0xE0 | (chr  >>> 12);
+      buffer[index++] = 0x80 | ((chr >>> 6)  & 0x3F);
+      buffer[index++] = 0x80 | (chr          & 0x3F);
+    } else {
+      // 4 bytes - surrogate pair
+      chr = (((chr - 0xD800) << 10) | (string.charCodeAt(i++) - 0xDC00)) + 0x10000;
+      buffer[index++] = 0xF0 | (chr >>> 18);
+      buffer[index++] = 0x80 | ((chr >>> 12) & 0x3F);
+      buffer[index++] = 0x80 | ((chr >>> 6)  & 0x3F);
+      buffer[index++] = 0x80 | (chr          & 0x3F);
+    }
+  }
+  return index - offset;
+}
+
+/**
+ * Buffer.prototype.toString()
+ *
+ * @param [encoding] {String} ignored
+ * @param [start] {Number}
+ * @param [end] {Number}
+ * @returns {String}
+ */
+
+function toString(encoding, start, end) {
+  var buffer = this;
+  var index = start|0;
+  if (!end) end = buffer.length;
+  var string = '';
+  var chr = 0;
+
+  while (index < end) {
+    chr = buffer[index++];
+    if (chr < 128) {
+      string += String.fromCharCode(chr);
+      continue;
+    }
+
+    if ((chr & 0xE0) === 0xC0) {
+      // 2 bytes
+      chr = (chr & 0x1F) << 6 |
+            (buffer[index++] & 0x3F);
+
+    } else if ((chr & 0xF0) === 0xE0) {
+      // 3 bytes
+      chr = (chr & 0x0F)             << 12 |
+            (buffer[index++] & 0x3F) << 6  |
+            (buffer[index++] & 0x3F);
+
+    } else if ((chr & 0xF8) === 0xF0) {
+      // 4 bytes
+      chr = (chr & 0x07)             << 18 |
+            (buffer[index++] & 0x3F) << 12 |
+            (buffer[index++] & 0x3F) << 6  |
+            (buffer[index++] & 0x3F);
+    }
+
+    if (chr >= 0x010000) {
+      // A surrogate pair
+      chr -= 0x010000;
+
+      string += String.fromCharCode((chr >>> 10) + 0xD800, (chr & 0x3FF) + 0xDC00);
+    } else {
+      string += String.fromCharCode(chr);
+    }
+  }
+
+  return string;
+}
+
+/**
+ * Buffer.prototype.copy()
+ *
+ * @param target {Buffer}
+ * @param [targetStart] {Number}
+ * @param [start] {Number}
+ * @param [end] {Number}
+ * @returns {number}
+ */
+
+function copy(target, targetStart, start, end) {
+  var i;
+  if (!start) start = 0;
+  if (!end && end !== 0) end = this.length;
+  if (!targetStart) targetStart = 0;
+  var len = end - start;
+
+  if (target === this && start < targetStart && targetStart < end) {
+    // descending
+    for (i = len - 1; i >= 0; i--) {
+      target[i + targetStart] = this[i + start];
+    }
+  } else {
+    // ascending
+    for (i = 0; i < len; i++) {
+      target[i + targetStart] = this[i + start];
+    }
+  }
+
+  return len;
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/bufferish-array.js":
+/*!***********************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/bufferish-array.js ***!
+  \***********************************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+// bufferish-array.js
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+
+var exports = module.exports = alloc(0);
+
+exports.alloc = alloc;
+exports.concat = Bufferish.concat;
+exports.from = from;
+
+/**
+ * @param size {Number}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function alloc(size) {
+  return new Array(size);
+}
+
+/**
+ * @param value {Array|ArrayBuffer|Buffer|String}
+ * @returns {Array}
+ */
+
+function from(value) {
+  if (!Bufferish.isBuffer(value) && Bufferish.isView(value)) {
+    // TypedArray to Uint8Array
+    value = Bufferish.Uint8Array.from(value);
+  } else if (Bufferish.isArrayBuffer(value)) {
+    // ArrayBuffer to Uint8Array
+    value = new Uint8Array(value);
+  } else if (typeof value === "string") {
+    // String to Array
+    return Bufferish.from.call(exports, value);
+  } else if (typeof value === "number") {
+    throw new TypeError('"value" argument must not be a number');
+  }
+
+  // Array-like to Array
+  return Array.prototype.slice.call(value);
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/bufferish-buffer.js":
+/*!************************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/bufferish-buffer.js ***!
+  \************************************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+// bufferish-buffer.js
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var Buffer = Bufferish.global;
+
+var exports = module.exports = Bufferish.hasBuffer ? alloc(0) : [];
+
+exports.alloc = Bufferish.hasBuffer && Buffer.alloc || alloc;
+exports.concat = Bufferish.concat;
+exports.from = from;
+
+/**
+ * @param size {Number}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function alloc(size) {
+  return new Buffer(size);
+}
+
+/**
+ * @param value {Array|ArrayBuffer|Buffer|String}
+ * @returns {Buffer}
+ */
+
+function from(value) {
+  if (!Bufferish.isBuffer(value) && Bufferish.isView(value)) {
+    // TypedArray to Uint8Array
+    value = Bufferish.Uint8Array.from(value);
+  } else if (Bufferish.isArrayBuffer(value)) {
+    // ArrayBuffer to Uint8Array
+    value = new Uint8Array(value);
+  } else if (typeof value === "string") {
+    // String to Buffer
+    return Bufferish.from.call(exports, value);
+  } else if (typeof value === "number") {
+    throw new TypeError('"value" argument must not be a number');
+  }
+
+  // Array-like to Buffer
+  if (Buffer.from && Buffer.from.length !== 1) {
+    return Buffer.from(value); // node v6+
+  } else {
+    return new Buffer(value); // node v4
+  }
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/bufferish-proto.js":
+/*!***********************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/bufferish-proto.js ***!
+  \***********************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// bufferish-proto.js
+
+/* jshint eqnull:true */
+
+var BufferLite = __webpack_require__(/*! ./buffer-lite */ "../node_modules/msgpack-lite/lib/buffer-lite.js");
+
+exports.copy = copy;
+exports.slice = slice;
+exports.toString = toString;
+exports.write = gen("write");
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var Buffer = Bufferish.global;
+
+var isBufferShim = Bufferish.hasBuffer && ("TYPED_ARRAY_SUPPORT" in Buffer);
+var brokenTypedArray = isBufferShim && !Buffer.TYPED_ARRAY_SUPPORT;
+
+/**
+ * @param target {Buffer|Uint8Array|Array}
+ * @param [targetStart] {Number}
+ * @param [start] {Number}
+ * @param [end] {Number}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function copy(target, targetStart, start, end) {
+  var thisIsBuffer = Bufferish.isBuffer(this);
+  var targetIsBuffer = Bufferish.isBuffer(target);
+  if (thisIsBuffer && targetIsBuffer) {
+    // Buffer to Buffer
+    return this.copy(target, targetStart, start, end);
+  } else if (!brokenTypedArray && !thisIsBuffer && !targetIsBuffer &&
+    Bufferish.isView(this) && Bufferish.isView(target)) {
+    // Uint8Array to Uint8Array (except for minor some browsers)
+    var buffer = (start || end != null) ? slice.call(this, start, end) : this;
+    target.set(buffer, targetStart);
+    return buffer.length;
+  } else {
+    // other cases
+    return BufferLite.copy.call(this, target, targetStart, start, end);
+  }
+}
+
+/**
+ * @param [start] {Number}
+ * @param [end] {Number}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function slice(start, end) {
+  // for Buffer, Uint8Array (except for minor some browsers) and Array
+  var f = this.slice || (!brokenTypedArray && this.subarray);
+  if (f) return f.call(this, start, end);
+
+  // Uint8Array (for minor some browsers)
+  var target = Bufferish.alloc.call(this, end - start);
+  copy.call(this, target, 0, start, end);
+  return target;
+}
+
+/**
+ * Buffer.prototype.toString()
+ *
+ * @param [encoding] {String} ignored
+ * @param [start] {Number}
+ * @param [end] {Number}
+ * @returns {String}
+ */
+
+function toString(encoding, start, end) {
+  var f = (!isBufferShim && Bufferish.isBuffer(this)) ? this.toString : BufferLite.toString;
+  return f.apply(this, arguments);
+}
+
+/**
+ * @private
+ */
+
+function gen(method) {
+  return wrap;
+
+  function wrap() {
+    var f = this[method] || BufferLite[method];
+    return f.apply(this, arguments);
+  }
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/bufferish-uint8array.js":
+/*!****************************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/bufferish-uint8array.js ***!
+  \****************************************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+// bufferish-uint8array.js
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+
+var exports = module.exports = Bufferish.hasArrayBuffer ? alloc(0) : [];
+
+exports.alloc = alloc;
+exports.concat = Bufferish.concat;
+exports.from = from;
+
+/**
+ * @param size {Number}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function alloc(size) {
+  return new Uint8Array(size);
+}
+
+/**
+ * @param value {Array|ArrayBuffer|Buffer|String}
+ * @returns {Uint8Array}
+ */
+
+function from(value) {
+  if (Bufferish.isView(value)) {
+    // TypedArray to ArrayBuffer
+    var byteOffset = value.byteOffset;
+    var byteLength = value.byteLength;
+    value = value.buffer;
+    if (value.byteLength !== byteLength) {
+      if (value.slice) {
+        value = value.slice(byteOffset, byteOffset + byteLength);
+      } else {
+        // Android 4.1 does not have ArrayBuffer.prototype.slice
+        value = new Uint8Array(value);
+        if (value.byteLength !== byteLength) {
+          // TypedArray to ArrayBuffer to Uint8Array to Array
+          value = Array.prototype.slice.call(value, byteOffset, byteOffset + byteLength);
+        }
+      }
+    }
+  } else if (typeof value === "string") {
+    // String to Uint8Array
+    return Bufferish.from.call(exports, value);
+  } else if (typeof value === "number") {
+    throw new TypeError('"value" argument must not be a number');
+  }
+
+  return new Uint8Array(value);
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/bufferish.js":
+/*!*****************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/bufferish.js ***!
+  \*****************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// bufferish.js
+
+var Buffer = exports.global = __webpack_require__(/*! ./buffer-global */ "../node_modules/msgpack-lite/lib/buffer-global.js");
+var hasBuffer = exports.hasBuffer = Buffer && !!Buffer.isBuffer;
+var hasArrayBuffer = exports.hasArrayBuffer = ("undefined" !== typeof ArrayBuffer);
+
+var isArray = exports.isArray = __webpack_require__(/*! isarray */ "../node_modules/isarray/index.js");
+exports.isArrayBuffer = hasArrayBuffer ? isArrayBuffer : _false;
+var isBuffer = exports.isBuffer = hasBuffer ? Buffer.isBuffer : _false;
+var isView = exports.isView = hasArrayBuffer ? (ArrayBuffer.isView || _is("ArrayBuffer", "buffer")) : _false;
+
+exports.alloc = alloc;
+exports.concat = concat;
+exports.from = from;
+
+var BufferArray = exports.Array = __webpack_require__(/*! ./bufferish-array */ "../node_modules/msgpack-lite/lib/bufferish-array.js");
+var BufferBuffer = exports.Buffer = __webpack_require__(/*! ./bufferish-buffer */ "../node_modules/msgpack-lite/lib/bufferish-buffer.js");
+var BufferUint8Array = exports.Uint8Array = __webpack_require__(/*! ./bufferish-uint8array */ "../node_modules/msgpack-lite/lib/bufferish-uint8array.js");
+var BufferProto = exports.prototype = __webpack_require__(/*! ./bufferish-proto */ "../node_modules/msgpack-lite/lib/bufferish-proto.js");
+
+/**
+ * @param value {Array|ArrayBuffer|Buffer|String}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function from(value) {
+  if (typeof value === "string") {
+    return fromString.call(this, value);
+  } else {
+    return auto(this).from(value);
+  }
+}
+
+/**
+ * @param size {Number}
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function alloc(size) {
+  return auto(this).alloc(size);
+}
+
+/**
+ * @param list {Array} array of (Buffer|Uint8Array|Array)s
+ * @param [length]
+ * @returns {Buffer|Uint8Array|Array}
+ */
+
+function concat(list, length) {
+  if (!length) {
+    length = 0;
+    Array.prototype.forEach.call(list, dryrun);
+  }
+  var ref = (this !== exports) && this || list[0];
+  var result = alloc.call(ref, length);
+  var offset = 0;
+  Array.prototype.forEach.call(list, append);
+  return result;
+
+  function dryrun(buffer) {
+    length += buffer.length;
+  }
+
+  function append(buffer) {
+    offset += BufferProto.copy.call(buffer, result, offset);
+  }
+}
+
+var _isArrayBuffer = _is("ArrayBuffer");
+
+function isArrayBuffer(value) {
+  return (value instanceof ArrayBuffer) || _isArrayBuffer(value);
+}
+
+/**
+ * @private
+ */
+
+function fromString(value) {
+  var expected = value.length * 3;
+  var that = alloc.call(this, expected);
+  var actual = BufferProto.write.call(that, value);
+  if (expected !== actual) {
+    that = BufferProto.slice.call(that, 0, actual);
+  }
+  return that;
+}
+
+function auto(that) {
+  return isBuffer(that) ? BufferBuffer
+    : isView(that) ? BufferUint8Array
+    : isArray(that) ? BufferArray
+    : hasBuffer ? BufferBuffer
+    : hasArrayBuffer ? BufferUint8Array
+    : BufferArray;
+}
+
+function _false() {
+  return false;
+}
+
+function _is(name, key) {
+  /* jshint eqnull:true */
+  name = "[object " + name + "]";
+  return function(value) {
+    return (value != null) && {}.toString.call(key ? value[key] : value) === name;
+  };
+}
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/codec-base.js":
+/*!******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/codec-base.js ***!
+  \******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// codec-base.js
+
+var IS_ARRAY = __webpack_require__(/*! isarray */ "../node_modules/isarray/index.js");
+
+exports.createCodec = createCodec;
+exports.install = install;
+exports.filter = filter;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+
+function Codec(options) {
+  if (!(this instanceof Codec)) return new Codec(options);
+  this.options = options;
+  this.init();
+}
+
+Codec.prototype.init = function() {
+  var options = this.options;
+
+  if (options && options.uint8array) {
+    this.bufferish = Bufferish.Uint8Array;
+  }
+
+  return this;
+};
+
+function install(props) {
+  for (var key in props) {
+    Codec.prototype[key] = add(Codec.prototype[key], props[key]);
+  }
+}
+
+function add(a, b) {
+  return (a && b) ? ab : (a || b);
+
+  function ab() {
+    a.apply(this, arguments);
+    return b.apply(this, arguments);
+  }
+}
+
+function join(filters) {
+  filters = filters.slice();
+
+  return function(value) {
+    return filters.reduce(iterator, value);
+  };
+
+  function iterator(value, filter) {
+    return filter(value);
+  }
+}
+
+function filter(filter) {
+  return IS_ARRAY(filter) ? join(filter) : filter;
+}
+
+// @public
+// msgpack.createCodec()
+
+function createCodec(options) {
+  return new Codec(options);
+}
+
+// default shared codec
+
+exports.preset = createCodec({preset: true});
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/codec.js":
+/*!*************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/codec.js ***!
+  \*************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// codec.js
+
+// load both interfaces
+__webpack_require__(/*! ./read-core */ "../node_modules/msgpack-lite/lib/read-core.js");
+__webpack_require__(/*! ./write-core */ "../node_modules/msgpack-lite/lib/write-core.js");
+
+// @public
+// msgpack.codec.preset
+
+exports.codec = {
+  preset: __webpack_require__(/*! ./codec-base */ "../node_modules/msgpack-lite/lib/codec-base.js").preset
+};
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/decode-buffer.js":
+/*!*********************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/decode-buffer.js ***!
+  \*********************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// decode-buffer.js
+
+exports.DecodeBuffer = DecodeBuffer;
+
+var preset = __webpack_require__(/*! ./read-core */ "../node_modules/msgpack-lite/lib/read-core.js").preset;
+
+var FlexDecoder = __webpack_require__(/*! ./flex-buffer */ "../node_modules/msgpack-lite/lib/flex-buffer.js").FlexDecoder;
+
+FlexDecoder.mixin(DecodeBuffer.prototype);
+
+function DecodeBuffer(options) {
+  if (!(this instanceof DecodeBuffer)) return new DecodeBuffer(options);
+
+  if (options) {
+    this.options = options;
+    if (options.codec) {
+      var codec = this.codec = options.codec;
+      if (codec.bufferish) this.bufferish = codec.bufferish;
+    }
+  }
+}
+
+DecodeBuffer.prototype.codec = preset;
+
+DecodeBuffer.prototype.fetch = function() {
+  return this.codec.decode(this);
+};
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/decode.js":
+/*!**************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/decode.js ***!
+  \**************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// decode.js
+
+exports.decode = decode;
+
+var DecodeBuffer = __webpack_require__(/*! ./decode-buffer */ "../node_modules/msgpack-lite/lib/decode-buffer.js").DecodeBuffer;
+
+function decode(input, options) {
+  var decoder = new DecodeBuffer(options);
+  decoder.write(input);
+  return decoder.read();
+}
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/decoder.js":
+/*!***************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/decoder.js ***!
+  \***************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// decoder.js
+
+exports.Decoder = Decoder;
+
+var EventLite = __webpack_require__(/*! event-lite */ "../node_modules/event-lite/event-lite.js");
+var DecodeBuffer = __webpack_require__(/*! ./decode-buffer */ "../node_modules/msgpack-lite/lib/decode-buffer.js").DecodeBuffer;
+
+function Decoder(options) {
+  if (!(this instanceof Decoder)) return new Decoder(options);
+  DecodeBuffer.call(this, options);
+}
+
+Decoder.prototype = new DecodeBuffer();
+
+EventLite.mixin(Decoder.prototype);
+
+Decoder.prototype.decode = function(chunk) {
+  if (arguments.length) this.write(chunk);
+  this.flush();
+};
+
+Decoder.prototype.push = function(chunk) {
+  this.emit("data", chunk);
+};
+
+Decoder.prototype.end = function(chunk) {
+  this.decode(chunk);
+  this.emit("end");
+};
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/encode-buffer.js":
+/*!*********************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/encode-buffer.js ***!
+  \*********************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// encode-buffer.js
+
+exports.EncodeBuffer = EncodeBuffer;
+
+var preset = __webpack_require__(/*! ./write-core */ "../node_modules/msgpack-lite/lib/write-core.js").preset;
+
+var FlexEncoder = __webpack_require__(/*! ./flex-buffer */ "../node_modules/msgpack-lite/lib/flex-buffer.js").FlexEncoder;
+
+FlexEncoder.mixin(EncodeBuffer.prototype);
+
+function EncodeBuffer(options) {
+  if (!(this instanceof EncodeBuffer)) return new EncodeBuffer(options);
+
+  if (options) {
+    this.options = options;
+    if (options.codec) {
+      var codec = this.codec = options.codec;
+      if (codec.bufferish) this.bufferish = codec.bufferish;
+    }
+  }
+}
+
+EncodeBuffer.prototype.codec = preset;
+
+EncodeBuffer.prototype.write = function(input) {
+  this.codec.encode(this, input);
+};
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/encode.js":
+/*!**************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/encode.js ***!
+  \**************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// encode.js
+
+exports.encode = encode;
+
+var EncodeBuffer = __webpack_require__(/*! ./encode-buffer */ "../node_modules/msgpack-lite/lib/encode-buffer.js").EncodeBuffer;
+
+function encode(input, options) {
+  var encoder = new EncodeBuffer(options);
+  encoder.write(input);
+  return encoder.read();
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/encoder.js":
+/*!***************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/encoder.js ***!
+  \***************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// encoder.js
+
+exports.Encoder = Encoder;
+
+var EventLite = __webpack_require__(/*! event-lite */ "../node_modules/event-lite/event-lite.js");
+var EncodeBuffer = __webpack_require__(/*! ./encode-buffer */ "../node_modules/msgpack-lite/lib/encode-buffer.js").EncodeBuffer;
+
+function Encoder(options) {
+  if (!(this instanceof Encoder)) return new Encoder(options);
+  EncodeBuffer.call(this, options);
+}
+
+Encoder.prototype = new EncodeBuffer();
+
+EventLite.mixin(Encoder.prototype);
+
+Encoder.prototype.encode = function(chunk) {
+  this.write(chunk);
+  this.emit("data", this.read());
+};
+
+Encoder.prototype.end = function(chunk) {
+  if (arguments.length) this.encode(chunk);
+  this.flush();
+  this.emit("end");
+};
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/ext-buffer.js":
+/*!******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/ext-buffer.js ***!
+  \******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// ext-buffer.js
+
+exports.ExtBuffer = ExtBuffer;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+
+function ExtBuffer(buffer, type) {
+  if (!(this instanceof ExtBuffer)) return new ExtBuffer(buffer, type);
+  this.buffer = Bufferish.from(buffer);
+  this.type = type;
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/ext-packer.js":
+/*!******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/ext-packer.js ***!
+  \******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// ext-packer.js
+
+exports.setExtPackers = setExtPackers;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var Buffer = Bufferish.global;
+var packTypedArray = Bufferish.Uint8Array.from;
+var _encode;
+
+var ERROR_COLUMNS = {name: 1, message: 1, stack: 1, columnNumber: 1, fileName: 1, lineNumber: 1};
+
+function setExtPackers(codec) {
+  codec.addExtPacker(0x0E, Error, [packError, encode]);
+  codec.addExtPacker(0x01, EvalError, [packError, encode]);
+  codec.addExtPacker(0x02, RangeError, [packError, encode]);
+  codec.addExtPacker(0x03, ReferenceError, [packError, encode]);
+  codec.addExtPacker(0x04, SyntaxError, [packError, encode]);
+  codec.addExtPacker(0x05, TypeError, [packError, encode]);
+  codec.addExtPacker(0x06, URIError, [packError, encode]);
+
+  codec.addExtPacker(0x0A, RegExp, [packRegExp, encode]);
+  codec.addExtPacker(0x0B, Boolean, [packValueOf, encode]);
+  codec.addExtPacker(0x0C, String, [packValueOf, encode]);
+  codec.addExtPacker(0x0D, Date, [Number, encode]);
+  codec.addExtPacker(0x0F, Number, [packValueOf, encode]);
+
+  if ("undefined" !== typeof Uint8Array) {
+    codec.addExtPacker(0x11, Int8Array, packTypedArray);
+    codec.addExtPacker(0x12, Uint8Array, packTypedArray);
+    codec.addExtPacker(0x13, Int16Array, packTypedArray);
+    codec.addExtPacker(0x14, Uint16Array, packTypedArray);
+    codec.addExtPacker(0x15, Int32Array, packTypedArray);
+    codec.addExtPacker(0x16, Uint32Array, packTypedArray);
+    codec.addExtPacker(0x17, Float32Array, packTypedArray);
+
+    // PhantomJS/1.9.7 doesn't have Float64Array
+    if ("undefined" !== typeof Float64Array) {
+      codec.addExtPacker(0x18, Float64Array, packTypedArray);
+    }
+
+    // IE10 doesn't have Uint8ClampedArray
+    if ("undefined" !== typeof Uint8ClampedArray) {
+      codec.addExtPacker(0x19, Uint8ClampedArray, packTypedArray);
+    }
+
+    codec.addExtPacker(0x1A, ArrayBuffer, packTypedArray);
+    codec.addExtPacker(0x1D, DataView, packTypedArray);
+  }
+
+  if (Bufferish.hasBuffer) {
+    codec.addExtPacker(0x1B, Buffer, Bufferish.from);
+  }
+}
+
+function encode(input) {
+  if (!_encode) _encode = __webpack_require__(/*! ./encode */ "../node_modules/msgpack-lite/lib/encode.js").encode; // lazy load
+  return _encode(input);
+}
+
+function packValueOf(value) {
+  return (value).valueOf();
+}
+
+function packRegExp(value) {
+  value = RegExp.prototype.toString.call(value).split("/");
+  value.shift();
+  var out = [value.pop()];
+  out.unshift(value.join("/"));
+  return out;
+}
+
+function packError(value) {
+  var out = {};
+  for (var key in ERROR_COLUMNS) {
+    out[key] = value[key];
+  }
+  return out;
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/ext-unpacker.js":
+/*!********************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/ext-unpacker.js ***!
+  \********************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// ext-unpacker.js
+
+exports.setExtUnpackers = setExtUnpackers;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var Buffer = Bufferish.global;
+var _decode;
+
+var ERROR_COLUMNS = {name: 1, message: 1, stack: 1, columnNumber: 1, fileName: 1, lineNumber: 1};
+
+function setExtUnpackers(codec) {
+  codec.addExtUnpacker(0x0E, [decode, unpackError(Error)]);
+  codec.addExtUnpacker(0x01, [decode, unpackError(EvalError)]);
+  codec.addExtUnpacker(0x02, [decode, unpackError(RangeError)]);
+  codec.addExtUnpacker(0x03, [decode, unpackError(ReferenceError)]);
+  codec.addExtUnpacker(0x04, [decode, unpackError(SyntaxError)]);
+  codec.addExtUnpacker(0x05, [decode, unpackError(TypeError)]);
+  codec.addExtUnpacker(0x06, [decode, unpackError(URIError)]);
+
+  codec.addExtUnpacker(0x0A, [decode, unpackRegExp]);
+  codec.addExtUnpacker(0x0B, [decode, unpackClass(Boolean)]);
+  codec.addExtUnpacker(0x0C, [decode, unpackClass(String)]);
+  codec.addExtUnpacker(0x0D, [decode, unpackClass(Date)]);
+  codec.addExtUnpacker(0x0F, [decode, unpackClass(Number)]);
+
+  if ("undefined" !== typeof Uint8Array) {
+    codec.addExtUnpacker(0x11, unpackClass(Int8Array));
+    codec.addExtUnpacker(0x12, unpackClass(Uint8Array));
+    codec.addExtUnpacker(0x13, [unpackArrayBuffer, unpackClass(Int16Array)]);
+    codec.addExtUnpacker(0x14, [unpackArrayBuffer, unpackClass(Uint16Array)]);
+    codec.addExtUnpacker(0x15, [unpackArrayBuffer, unpackClass(Int32Array)]);
+    codec.addExtUnpacker(0x16, [unpackArrayBuffer, unpackClass(Uint32Array)]);
+    codec.addExtUnpacker(0x17, [unpackArrayBuffer, unpackClass(Float32Array)]);
+
+    // PhantomJS/1.9.7 doesn't have Float64Array
+    if ("undefined" !== typeof Float64Array) {
+      codec.addExtUnpacker(0x18, [unpackArrayBuffer, unpackClass(Float64Array)]);
+    }
+
+    // IE10 doesn't have Uint8ClampedArray
+    if ("undefined" !== typeof Uint8ClampedArray) {
+      codec.addExtUnpacker(0x19, unpackClass(Uint8ClampedArray));
+    }
+
+    codec.addExtUnpacker(0x1A, unpackArrayBuffer);
+    codec.addExtUnpacker(0x1D, [unpackArrayBuffer, unpackClass(DataView)]);
+  }
+
+  if (Bufferish.hasBuffer) {
+    codec.addExtUnpacker(0x1B, unpackClass(Buffer));
+  }
+}
+
+function decode(input) {
+  if (!_decode) _decode = __webpack_require__(/*! ./decode */ "../node_modules/msgpack-lite/lib/decode.js").decode; // lazy load
+  return _decode(input);
+}
+
+function unpackRegExp(value) {
+  return RegExp.apply(null, value);
+}
+
+function unpackError(Class) {
+  return function(value) {
+    var out = new Class();
+    for (var key in ERROR_COLUMNS) {
+      out[key] = value[key];
+    }
+    return out;
+  };
+}
+
+function unpackClass(Class) {
+  return function(value) {
+    return new Class(value);
+  };
+}
+
+function unpackArrayBuffer(value) {
+  return (new Uint8Array(value)).buffer;
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/ext.js":
+/*!***********************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/ext.js ***!
+  \***********************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// ext.js
+
+// load both interfaces
+__webpack_require__(/*! ./read-core */ "../node_modules/msgpack-lite/lib/read-core.js");
+__webpack_require__(/*! ./write-core */ "../node_modules/msgpack-lite/lib/write-core.js");
+
+exports.createCodec = __webpack_require__(/*! ./codec-base */ "../node_modules/msgpack-lite/lib/codec-base.js").createCodec;
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/flex-buffer.js":
+/*!*******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/flex-buffer.js ***!
+  \*******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// flex-buffer.js
+
+exports.FlexDecoder = FlexDecoder;
+exports.FlexEncoder = FlexEncoder;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+
+var MIN_BUFFER_SIZE = 2048;
+var MAX_BUFFER_SIZE = 65536;
+var BUFFER_SHORTAGE = "BUFFER_SHORTAGE";
+
+function FlexDecoder() {
+  if (!(this instanceof FlexDecoder)) return new FlexDecoder();
+}
+
+function FlexEncoder() {
+  if (!(this instanceof FlexEncoder)) return new FlexEncoder();
+}
+
+FlexDecoder.mixin = mixinFactory(getDecoderMethods());
+FlexDecoder.mixin(FlexDecoder.prototype);
+
+FlexEncoder.mixin = mixinFactory(getEncoderMethods());
+FlexEncoder.mixin(FlexEncoder.prototype);
+
+function getDecoderMethods() {
+  return {
+    bufferish: Bufferish,
+    write: write,
+    fetch: fetch,
+    flush: flush,
+    push: push,
+    pull: pull,
+    read: read,
+    reserve: reserve,
+    offset: 0
+  };
+
+  function write(chunk) {
+    var prev = this.offset ? Bufferish.prototype.slice.call(this.buffer, this.offset) : this.buffer;
+    this.buffer = prev ? (chunk ? this.bufferish.concat([prev, chunk]) : prev) : chunk;
+    this.offset = 0;
+  }
+
+  function flush() {
+    while (this.offset < this.buffer.length) {
+      var start = this.offset;
+      var value;
+      try {
+        value = this.fetch();
+      } catch (e) {
+        if (e && e.message != BUFFER_SHORTAGE) throw e;
+        // rollback
+        this.offset = start;
+        break;
+      }
+      this.push(value);
+    }
+  }
+
+  function reserve(length) {
+    var start = this.offset;
+    var end = start + length;
+    if (end > this.buffer.length) throw new Error(BUFFER_SHORTAGE);
+    this.offset = end;
+    return start;
+  }
+}
+
+function getEncoderMethods() {
+  return {
+    bufferish: Bufferish,
+    write: write,
+    fetch: fetch,
+    flush: flush,
+    push: push,
+    pull: pull,
+    read: read,
+    reserve: reserve,
+    send: send,
+    maxBufferSize: MAX_BUFFER_SIZE,
+    minBufferSize: MIN_BUFFER_SIZE,
+    offset: 0,
+    start: 0
+  };
+
+  function fetch() {
+    var start = this.start;
+    if (start < this.offset) {
+      var end = this.start = this.offset;
+      return Bufferish.prototype.slice.call(this.buffer, start, end);
+    }
+  }
+
+  function flush() {
+    while (this.start < this.offset) {
+      var value = this.fetch();
+      if (value) this.push(value);
+    }
+  }
+
+  function pull() {
+    var buffers = this.buffers || (this.buffers = []);
+    var chunk = buffers.length > 1 ? this.bufferish.concat(buffers) : buffers[0];
+    buffers.length = 0; // buffer exhausted
+    return chunk;
+  }
+
+  function reserve(length) {
+    var req = length | 0;
+
+    if (this.buffer) {
+      var size = this.buffer.length;
+      var start = this.offset | 0;
+      var end = start + req;
+
+      // is it long enough?
+      if (end < size) {
+        this.offset = end;
+        return start;
+      }
+
+      // flush current buffer
+      this.flush();
+
+      // resize it to 2x current length
+      length = Math.max(length, Math.min(size * 2, this.maxBufferSize));
+    }
+
+    // minimum buffer size
+    length = Math.max(length, this.minBufferSize);
+
+    // allocate new buffer
+    this.buffer = this.bufferish.alloc(length);
+    this.start = 0;
+    this.offset = req;
+    return 0;
+  }
+
+  function send(buffer) {
+    var length = buffer.length;
+    if (length > this.minBufferSize) {
+      this.flush();
+      this.push(buffer);
+    } else {
+      var offset = this.reserve(length);
+      Bufferish.prototype.copy.call(buffer, this.buffer, offset);
+    }
+  }
+}
+
+// common methods
+
+function write() {
+  throw new Error("method not implemented: write()");
+}
+
+function fetch() {
+  throw new Error("method not implemented: fetch()");
+}
+
+function read() {
+  var length = this.buffers && this.buffers.length;
+
+  // fetch the first result
+  if (!length) return this.fetch();
+
+  // flush current buffer
+  this.flush();
+
+  // read from the results
+  return this.pull();
+}
+
+function push(chunk) {
+  var buffers = this.buffers || (this.buffers = []);
+  buffers.push(chunk);
+}
+
+function pull() {
+  var buffers = this.buffers || (this.buffers = []);
+  return buffers.shift();
+}
+
+function mixinFactory(source) {
+  return mixin;
+
+  function mixin(target) {
+    for (var key in source) {
+      target[key] = source[key];
+    }
+    return target;
+  }
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/read-core.js":
+/*!*****************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/read-core.js ***!
+  \*****************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// read-core.js
+
+var ExtBuffer = __webpack_require__(/*! ./ext-buffer */ "../node_modules/msgpack-lite/lib/ext-buffer.js").ExtBuffer;
+var ExtUnpacker = __webpack_require__(/*! ./ext-unpacker */ "../node_modules/msgpack-lite/lib/ext-unpacker.js");
+var readUint8 = __webpack_require__(/*! ./read-format */ "../node_modules/msgpack-lite/lib/read-format.js").readUint8;
+var ReadToken = __webpack_require__(/*! ./read-token */ "../node_modules/msgpack-lite/lib/read-token.js");
+var CodecBase = __webpack_require__(/*! ./codec-base */ "../node_modules/msgpack-lite/lib/codec-base.js");
+
+CodecBase.install({
+  addExtUnpacker: addExtUnpacker,
+  getExtUnpacker: getExtUnpacker,
+  init: init
+});
+
+exports.preset = init.call(CodecBase.preset);
+
+function getDecoder(options) {
+  var readToken = ReadToken.getReadToken(options);
+  return decode;
+
+  function decode(decoder) {
+    var type = readUint8(decoder);
+    var func = readToken[type];
+    if (!func) throw new Error("Invalid type: " + (type ? ("0x" + type.toString(16)) : type));
+    return func(decoder);
+  }
+}
+
+function init() {
+  var options = this.options;
+  this.decode = getDecoder(options);
+
+  if (options && options.preset) {
+    ExtUnpacker.setExtUnpackers(this);
+  }
+
+  return this;
+}
+
+function addExtUnpacker(etype, unpacker) {
+  var unpackers = this.extUnpackers || (this.extUnpackers = []);
+  unpackers[etype] = CodecBase.filter(unpacker);
+}
+
+function getExtUnpacker(type) {
+  var unpackers = this.extUnpackers || (this.extUnpackers = []);
+  return unpackers[type] || extUnpacker;
+
+  function extUnpacker(buffer) {
+    return new ExtBuffer(buffer, type);
+  }
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/read-format.js":
+/*!*******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/read-format.js ***!
+  \*******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// read-format.js
+
+var ieee754 = __webpack_require__(/*! ieee754 */ "../node_modules/ieee754/index.js");
+var Int64Buffer = __webpack_require__(/*! int64-buffer */ "../node_modules/int64-buffer/int64-buffer.js");
+var Uint64BE = Int64Buffer.Uint64BE;
+var Int64BE = Int64Buffer.Int64BE;
+
+exports.getReadFormat = getReadFormat;
+exports.readUint8 = uint8;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var BufferProto = __webpack_require__(/*! ./bufferish-proto */ "../node_modules/msgpack-lite/lib/bufferish-proto.js");
+
+var HAS_MAP = ("undefined" !== typeof Map);
+var NO_ASSERT = true;
+
+function getReadFormat(options) {
+  var binarraybuffer = Bufferish.hasArrayBuffer && options && options.binarraybuffer;
+  var int64 = options && options.int64;
+  var usemap = HAS_MAP && options && options.usemap;
+
+  var readFormat = {
+    map: (usemap ? map_to_map : map_to_obj),
+    array: array,
+    str: str,
+    bin: (binarraybuffer ? bin_arraybuffer : bin_buffer),
+    ext: ext,
+    uint8: uint8,
+    uint16: uint16,
+    uint32: uint32,
+    uint64: read(8, int64 ? readUInt64BE_int64 : readUInt64BE),
+    int8: int8,
+    int16: int16,
+    int32: int32,
+    int64: read(8, int64 ? readInt64BE_int64 : readInt64BE),
+    float32: read(4, readFloatBE),
+    float64: read(8, readDoubleBE)
+  };
+
+  return readFormat;
+}
+
+function map_to_obj(decoder, len) {
+  var value = {};
+  var i;
+  var k = new Array(len);
+  var v = new Array(len);
+
+  var decode = decoder.codec.decode;
+  for (i = 0; i < len; i++) {
+    k[i] = decode(decoder);
+    v[i] = decode(decoder);
+  }
+  for (i = 0; i < len; i++) {
+    value[k[i]] = v[i];
+  }
+  return value;
+}
+
+function map_to_map(decoder, len) {
+  var value = new Map();
+  var i;
+  var k = new Array(len);
+  var v = new Array(len);
+
+  var decode = decoder.codec.decode;
+  for (i = 0; i < len; i++) {
+    k[i] = decode(decoder);
+    v[i] = decode(decoder);
+  }
+  for (i = 0; i < len; i++) {
+    value.set(k[i], v[i]);
+  }
+  return value;
+}
+
+function array(decoder, len) {
+  var value = new Array(len);
+  var decode = decoder.codec.decode;
+  for (var i = 0; i < len; i++) {
+    value[i] = decode(decoder);
+  }
+  return value;
+}
+
+function str(decoder, len) {
+  var start = decoder.reserve(len);
+  var end = start + len;
+  return BufferProto.toString.call(decoder.buffer, "utf-8", start, end);
+}
+
+function bin_buffer(decoder, len) {
+  var start = decoder.reserve(len);
+  var end = start + len;
+  var buf = BufferProto.slice.call(decoder.buffer, start, end);
+  return Bufferish.from(buf);
+}
+
+function bin_arraybuffer(decoder, len) {
+  var start = decoder.reserve(len);
+  var end = start + len;
+  var buf = BufferProto.slice.call(decoder.buffer, start, end);
+  return Bufferish.Uint8Array.from(buf).buffer;
+}
+
+function ext(decoder, len) {
+  var start = decoder.reserve(len+1);
+  var type = decoder.buffer[start++];
+  var end = start + len;
+  var unpack = decoder.codec.getExtUnpacker(type);
+  if (!unpack) throw new Error("Invalid ext type: " + (type ? ("0x" + type.toString(16)) : type));
+  var buf = BufferProto.slice.call(decoder.buffer, start, end);
+  return unpack(buf);
+}
+
+function uint8(decoder) {
+  var start = decoder.reserve(1);
+  return decoder.buffer[start];
+}
+
+function int8(decoder) {
+  var start = decoder.reserve(1);
+  var value = decoder.buffer[start];
+  return (value & 0x80) ? value - 0x100 : value;
+}
+
+function uint16(decoder) {
+  var start = decoder.reserve(2);
+  var buffer = decoder.buffer;
+  return (buffer[start++] << 8) | buffer[start];
+}
+
+function int16(decoder) {
+  var start = decoder.reserve(2);
+  var buffer = decoder.buffer;
+  var value = (buffer[start++] << 8) | buffer[start];
+  return (value & 0x8000) ? value - 0x10000 : value;
+}
+
+function uint32(decoder) {
+  var start = decoder.reserve(4);
+  var buffer = decoder.buffer;
+  return (buffer[start++] * 16777216) + (buffer[start++] << 16) + (buffer[start++] << 8) + buffer[start];
+}
+
+function int32(decoder) {
+  var start = decoder.reserve(4);
+  var buffer = decoder.buffer;
+  return (buffer[start++] << 24) | (buffer[start++] << 16) | (buffer[start++] << 8) | buffer[start];
+}
+
+function read(len, method) {
+  return function(decoder) {
+    var start = decoder.reserve(len);
+    return method.call(decoder.buffer, start, NO_ASSERT);
+  };
+}
+
+function readUInt64BE(start) {
+  return new Uint64BE(this, start).toNumber();
+}
+
+function readInt64BE(start) {
+  return new Int64BE(this, start).toNumber();
+}
+
+function readUInt64BE_int64(start) {
+  return new Uint64BE(this, start);
+}
+
+function readInt64BE_int64(start) {
+  return new Int64BE(this, start);
+}
+
+function readFloatBE(start) {
+  return ieee754.read(this, start, false, 23, 4);
+}
+
+function readDoubleBE(start) {
+  return ieee754.read(this, start, false, 52, 8);
+}
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/read-token.js":
+/*!******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/read-token.js ***!
+  \******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// read-token.js
+
+var ReadFormat = __webpack_require__(/*! ./read-format */ "../node_modules/msgpack-lite/lib/read-format.js");
+
+exports.getReadToken = getReadToken;
+
+function getReadToken(options) {
+  var format = ReadFormat.getReadFormat(options);
+
+  if (options && options.useraw) {
+    return init_useraw(format);
+  } else {
+    return init_token(format);
+  }
+}
+
+function init_token(format) {
+  var i;
+  var token = new Array(256);
+
+  // positive fixint -- 0x00 - 0x7f
+  for (i = 0x00; i <= 0x7f; i++) {
+    token[i] = constant(i);
+  }
+
+  // fixmap -- 0x80 - 0x8f
+  for (i = 0x80; i <= 0x8f; i++) {
+    token[i] = fix(i - 0x80, format.map);
+  }
+
+  // fixarray -- 0x90 - 0x9f
+  for (i = 0x90; i <= 0x9f; i++) {
+    token[i] = fix(i - 0x90, format.array);
+  }
+
+  // fixstr -- 0xa0 - 0xbf
+  for (i = 0xa0; i <= 0xbf; i++) {
+    token[i] = fix(i - 0xa0, format.str);
+  }
+
+  // nil -- 0xc0
+  token[0xc0] = constant(null);
+
+  // (never used) -- 0xc1
+  token[0xc1] = null;
+
+  // false -- 0xc2
+  // true -- 0xc3
+  token[0xc2] = constant(false);
+  token[0xc3] = constant(true);
+
+  // bin 8 -- 0xc4
+  // bin 16 -- 0xc5
+  // bin 32 -- 0xc6
+  token[0xc4] = flex(format.uint8, format.bin);
+  token[0xc5] = flex(format.uint16, format.bin);
+  token[0xc6] = flex(format.uint32, format.bin);
+
+  // ext 8 -- 0xc7
+  // ext 16 -- 0xc8
+  // ext 32 -- 0xc9
+  token[0xc7] = flex(format.uint8, format.ext);
+  token[0xc8] = flex(format.uint16, format.ext);
+  token[0xc9] = flex(format.uint32, format.ext);
+
+  // float 32 -- 0xca
+  // float 64 -- 0xcb
+  token[0xca] = format.float32;
+  token[0xcb] = format.float64;
+
+  // uint 8 -- 0xcc
+  // uint 16 -- 0xcd
+  // uint 32 -- 0xce
+  // uint 64 -- 0xcf
+  token[0xcc] = format.uint8;
+  token[0xcd] = format.uint16;
+  token[0xce] = format.uint32;
+  token[0xcf] = format.uint64;
+
+  // int 8 -- 0xd0
+  // int 16 -- 0xd1
+  // int 32 -- 0xd2
+  // int 64 -- 0xd3
+  token[0xd0] = format.int8;
+  token[0xd1] = format.int16;
+  token[0xd2] = format.int32;
+  token[0xd3] = format.int64;
+
+  // fixext 1 -- 0xd4
+  // fixext 2 -- 0xd5
+  // fixext 4 -- 0xd6
+  // fixext 8 -- 0xd7
+  // fixext 16 -- 0xd8
+  token[0xd4] = fix(1, format.ext);
+  token[0xd5] = fix(2, format.ext);
+  token[0xd6] = fix(4, format.ext);
+  token[0xd7] = fix(8, format.ext);
+  token[0xd8] = fix(16, format.ext);
+
+  // str 8 -- 0xd9
+  // str 16 -- 0xda
+  // str 32 -- 0xdb
+  token[0xd9] = flex(format.uint8, format.str);
+  token[0xda] = flex(format.uint16, format.str);
+  token[0xdb] = flex(format.uint32, format.str);
+
+  // array 16 -- 0xdc
+  // array 32 -- 0xdd
+  token[0xdc] = flex(format.uint16, format.array);
+  token[0xdd] = flex(format.uint32, format.array);
+
+  // map 16 -- 0xde
+  // map 32 -- 0xdf
+  token[0xde] = flex(format.uint16, format.map);
+  token[0xdf] = flex(format.uint32, format.map);
+
+  // negative fixint -- 0xe0 - 0xff
+  for (i = 0xe0; i <= 0xff; i++) {
+    token[i] = constant(i - 0x100);
+  }
+
+  return token;
+}
+
+function init_useraw(format) {
+  var i;
+  var token = init_token(format).slice();
+
+  // raw 8 -- 0xd9
+  // raw 16 -- 0xda
+  // raw 32 -- 0xdb
+  token[0xd9] = token[0xc4];
+  token[0xda] = token[0xc5];
+  token[0xdb] = token[0xc6];
+
+  // fixraw -- 0xa0 - 0xbf
+  for (i = 0xa0; i <= 0xbf; i++) {
+    token[i] = fix(i - 0xa0, format.bin);
+  }
+
+  return token;
+}
+
+function constant(value) {
+  return function() {
+    return value;
+  };
+}
+
+function flex(lenFunc, decodeFunc) {
+  return function(decoder) {
+    var len = lenFunc(decoder);
+    return decodeFunc(decoder, len);
+  };
+}
+
+function fix(len, method) {
+  return function(decoder) {
+    return method(decoder, len);
+  };
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/write-core.js":
+/*!******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/write-core.js ***!
+  \******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// write-core.js
+
+var ExtBuffer = __webpack_require__(/*! ./ext-buffer */ "../node_modules/msgpack-lite/lib/ext-buffer.js").ExtBuffer;
+var ExtPacker = __webpack_require__(/*! ./ext-packer */ "../node_modules/msgpack-lite/lib/ext-packer.js");
+var WriteType = __webpack_require__(/*! ./write-type */ "../node_modules/msgpack-lite/lib/write-type.js");
+var CodecBase = __webpack_require__(/*! ./codec-base */ "../node_modules/msgpack-lite/lib/codec-base.js");
+
+CodecBase.install({
+  addExtPacker: addExtPacker,
+  getExtPacker: getExtPacker,
+  init: init
+});
+
+exports.preset = init.call(CodecBase.preset);
+
+function getEncoder(options) {
+  var writeType = WriteType.getWriteType(options);
+  return encode;
+
+  function encode(encoder, value) {
+    var func = writeType[typeof value];
+    if (!func) throw new Error("Unsupported type \"" + (typeof value) + "\": " + value);
+    func(encoder, value);
+  }
+}
+
+function init() {
+  var options = this.options;
+  this.encode = getEncoder(options);
+
+  if (options && options.preset) {
+    ExtPacker.setExtPackers(this);
+  }
+
+  return this;
+}
+
+function addExtPacker(etype, Class, packer) {
+  packer = CodecBase.filter(packer);
+  var name = Class.name;
+  if (name && name !== "Object") {
+    var packers = this.extPackers || (this.extPackers = {});
+    packers[name] = extPacker;
+  } else {
+    // fallback for IE
+    var list = this.extEncoderList || (this.extEncoderList = []);
+    list.unshift([Class, extPacker]);
+  }
+
+  function extPacker(value) {
+    if (packer) value = packer(value);
+    return new ExtBuffer(value, etype);
+  }
+}
+
+function getExtPacker(value) {
+  var packers = this.extPackers || (this.extPackers = {});
+  var c = value.constructor;
+  var e = c && c.name && packers[c.name];
+  if (e) return e;
+
+  // fallback for IE
+  var list = this.extEncoderList || (this.extEncoderList = []);
+  var len = list.length;
+  for (var i = 0; i < len; i++) {
+    var pair = list[i];
+    if (c === pair[0]) return pair[1];
+  }
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/write-token.js":
+/*!*******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/write-token.js ***!
+  \*******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// write-token.js
+
+var ieee754 = __webpack_require__(/*! ieee754 */ "../node_modules/ieee754/index.js");
+var Int64Buffer = __webpack_require__(/*! int64-buffer */ "../node_modules/int64-buffer/int64-buffer.js");
+var Uint64BE = Int64Buffer.Uint64BE;
+var Int64BE = Int64Buffer.Int64BE;
+
+var uint8 = __webpack_require__(/*! ./write-uint8 */ "../node_modules/msgpack-lite/lib/write-uint8.js").uint8;
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var Buffer = Bufferish.global;
+var IS_BUFFER_SHIM = Bufferish.hasBuffer && ("TYPED_ARRAY_SUPPORT" in Buffer);
+var NO_TYPED_ARRAY = IS_BUFFER_SHIM && !Buffer.TYPED_ARRAY_SUPPORT;
+var Buffer_prototype = Bufferish.hasBuffer && Buffer.prototype || {};
+
+exports.getWriteToken = getWriteToken;
+
+function getWriteToken(options) {
+  if (options && options.uint8array) {
+    return init_uint8array();
+  } else if (NO_TYPED_ARRAY || (Bufferish.hasBuffer && options && options.safe)) {
+    return init_safe();
+  } else {
+    return init_token();
+  }
+}
+
+function init_uint8array() {
+  var token = init_token();
+
+  // float 32 -- 0xca
+  // float 64 -- 0xcb
+  token[0xca] = writeN(0xca, 4, writeFloatBE);
+  token[0xcb] = writeN(0xcb, 8, writeDoubleBE);
+
+  return token;
+}
+
+// Node.js and browsers with TypedArray
+
+function init_token() {
+  // (immediate values)
+  // positive fixint -- 0x00 - 0x7f
+  // nil -- 0xc0
+  // false -- 0xc2
+  // true -- 0xc3
+  // negative fixint -- 0xe0 - 0xff
+  var token = uint8.slice();
+
+  // bin 8 -- 0xc4
+  // bin 16 -- 0xc5
+  // bin 32 -- 0xc6
+  token[0xc4] = write1(0xc4);
+  token[0xc5] = write2(0xc5);
+  token[0xc6] = write4(0xc6);
+
+  // ext 8 -- 0xc7
+  // ext 16 -- 0xc8
+  // ext 32 -- 0xc9
+  token[0xc7] = write1(0xc7);
+  token[0xc8] = write2(0xc8);
+  token[0xc9] = write4(0xc9);
+
+  // float 32 -- 0xca
+  // float 64 -- 0xcb
+  token[0xca] = writeN(0xca, 4, (Buffer_prototype.writeFloatBE || writeFloatBE), true);
+  token[0xcb] = writeN(0xcb, 8, (Buffer_prototype.writeDoubleBE || writeDoubleBE), true);
+
+  // uint 8 -- 0xcc
+  // uint 16 -- 0xcd
+  // uint 32 -- 0xce
+  // uint 64 -- 0xcf
+  token[0xcc] = write1(0xcc);
+  token[0xcd] = write2(0xcd);
+  token[0xce] = write4(0xce);
+  token[0xcf] = writeN(0xcf, 8, writeUInt64BE);
+
+  // int 8 -- 0xd0
+  // int 16 -- 0xd1
+  // int 32 -- 0xd2
+  // int 64 -- 0xd3
+  token[0xd0] = write1(0xd0);
+  token[0xd1] = write2(0xd1);
+  token[0xd2] = write4(0xd2);
+  token[0xd3] = writeN(0xd3, 8, writeInt64BE);
+
+  // str 8 -- 0xd9
+  // str 16 -- 0xda
+  // str 32 -- 0xdb
+  token[0xd9] = write1(0xd9);
+  token[0xda] = write2(0xda);
+  token[0xdb] = write4(0xdb);
+
+  // array 16 -- 0xdc
+  // array 32 -- 0xdd
+  token[0xdc] = write2(0xdc);
+  token[0xdd] = write4(0xdd);
+
+  // map 16 -- 0xde
+  // map 32 -- 0xdf
+  token[0xde] = write2(0xde);
+  token[0xdf] = write4(0xdf);
+
+  return token;
+}
+
+// safe mode: for old browsers and who needs asserts
+
+function init_safe() {
+  // (immediate values)
+  // positive fixint -- 0x00 - 0x7f
+  // nil -- 0xc0
+  // false -- 0xc2
+  // true -- 0xc3
+  // negative fixint -- 0xe0 - 0xff
+  var token = uint8.slice();
+
+  // bin 8 -- 0xc4
+  // bin 16 -- 0xc5
+  // bin 32 -- 0xc6
+  token[0xc4] = writeN(0xc4, 1, Buffer.prototype.writeUInt8);
+  token[0xc5] = writeN(0xc5, 2, Buffer.prototype.writeUInt16BE);
+  token[0xc6] = writeN(0xc6, 4, Buffer.prototype.writeUInt32BE);
+
+  // ext 8 -- 0xc7
+  // ext 16 -- 0xc8
+  // ext 32 -- 0xc9
+  token[0xc7] = writeN(0xc7, 1, Buffer.prototype.writeUInt8);
+  token[0xc8] = writeN(0xc8, 2, Buffer.prototype.writeUInt16BE);
+  token[0xc9] = writeN(0xc9, 4, Buffer.prototype.writeUInt32BE);
+
+  // float 32 -- 0xca
+  // float 64 -- 0xcb
+  token[0xca] = writeN(0xca, 4, Buffer.prototype.writeFloatBE);
+  token[0xcb] = writeN(0xcb, 8, Buffer.prototype.writeDoubleBE);
+
+  // uint 8 -- 0xcc
+  // uint 16 -- 0xcd
+  // uint 32 -- 0xce
+  // uint 64 -- 0xcf
+  token[0xcc] = writeN(0xcc, 1, Buffer.prototype.writeUInt8);
+  token[0xcd] = writeN(0xcd, 2, Buffer.prototype.writeUInt16BE);
+  token[0xce] = writeN(0xce, 4, Buffer.prototype.writeUInt32BE);
+  token[0xcf] = writeN(0xcf, 8, writeUInt64BE);
+
+  // int 8 -- 0xd0
+  // int 16 -- 0xd1
+  // int 32 -- 0xd2
+  // int 64 -- 0xd3
+  token[0xd0] = writeN(0xd0, 1, Buffer.prototype.writeInt8);
+  token[0xd1] = writeN(0xd1, 2, Buffer.prototype.writeInt16BE);
+  token[0xd2] = writeN(0xd2, 4, Buffer.prototype.writeInt32BE);
+  token[0xd3] = writeN(0xd3, 8, writeInt64BE);
+
+  // str 8 -- 0xd9
+  // str 16 -- 0xda
+  // str 32 -- 0xdb
+  token[0xd9] = writeN(0xd9, 1, Buffer.prototype.writeUInt8);
+  token[0xda] = writeN(0xda, 2, Buffer.prototype.writeUInt16BE);
+  token[0xdb] = writeN(0xdb, 4, Buffer.prototype.writeUInt32BE);
+
+  // array 16 -- 0xdc
+  // array 32 -- 0xdd
+  token[0xdc] = writeN(0xdc, 2, Buffer.prototype.writeUInt16BE);
+  token[0xdd] = writeN(0xdd, 4, Buffer.prototype.writeUInt32BE);
+
+  // map 16 -- 0xde
+  // map 32 -- 0xdf
+  token[0xde] = writeN(0xde, 2, Buffer.prototype.writeUInt16BE);
+  token[0xdf] = writeN(0xdf, 4, Buffer.prototype.writeUInt32BE);
+
+  return token;
+}
+
+function write1(type) {
+  return function(encoder, value) {
+    var offset = encoder.reserve(2);
+    var buffer = encoder.buffer;
+    buffer[offset++] = type;
+    buffer[offset] = value;
+  };
+}
+
+function write2(type) {
+  return function(encoder, value) {
+    var offset = encoder.reserve(3);
+    var buffer = encoder.buffer;
+    buffer[offset++] = type;
+    buffer[offset++] = value >>> 8;
+    buffer[offset] = value;
+  };
+}
+
+function write4(type) {
+  return function(encoder, value) {
+    var offset = encoder.reserve(5);
+    var buffer = encoder.buffer;
+    buffer[offset++] = type;
+    buffer[offset++] = value >>> 24;
+    buffer[offset++] = value >>> 16;
+    buffer[offset++] = value >>> 8;
+    buffer[offset] = value;
+  };
+}
+
+function writeN(type, len, method, noAssert) {
+  return function(encoder, value) {
+    var offset = encoder.reserve(len + 1);
+    encoder.buffer[offset++] = type;
+    method.call(encoder.buffer, value, offset, noAssert);
+  };
+}
+
+function writeUInt64BE(value, offset) {
+  new Uint64BE(this, offset, value);
+}
+
+function writeInt64BE(value, offset) {
+  new Int64BE(this, offset, value);
+}
+
+function writeFloatBE(value, offset) {
+  ieee754.write(this, value, offset, false, 23, 4);
+}
+
+function writeDoubleBE(value, offset) {
+  ieee754.write(this, value, offset, false, 52, 8);
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/write-type.js":
+/*!******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/write-type.js ***!
+  \******************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+// write-type.js
+
+var IS_ARRAY = __webpack_require__(/*! isarray */ "../node_modules/isarray/index.js");
+var Int64Buffer = __webpack_require__(/*! int64-buffer */ "../node_modules/int64-buffer/int64-buffer.js");
+var Uint64BE = Int64Buffer.Uint64BE;
+var Int64BE = Int64Buffer.Int64BE;
+
+var Bufferish = __webpack_require__(/*! ./bufferish */ "../node_modules/msgpack-lite/lib/bufferish.js");
+var BufferProto = __webpack_require__(/*! ./bufferish-proto */ "../node_modules/msgpack-lite/lib/bufferish-proto.js");
+var WriteToken = __webpack_require__(/*! ./write-token */ "../node_modules/msgpack-lite/lib/write-token.js");
+var uint8 = __webpack_require__(/*! ./write-uint8 */ "../node_modules/msgpack-lite/lib/write-uint8.js").uint8;
+var ExtBuffer = __webpack_require__(/*! ./ext-buffer */ "../node_modules/msgpack-lite/lib/ext-buffer.js").ExtBuffer;
+
+var HAS_UINT8ARRAY = ("undefined" !== typeof Uint8Array);
+var HAS_MAP = ("undefined" !== typeof Map);
+
+var extmap = [];
+extmap[1] = 0xd4;
+extmap[2] = 0xd5;
+extmap[4] = 0xd6;
+extmap[8] = 0xd7;
+extmap[16] = 0xd8;
+
+exports.getWriteType = getWriteType;
+
+function getWriteType(options) {
+  var token = WriteToken.getWriteToken(options);
+  var useraw = options && options.useraw;
+  var binarraybuffer = HAS_UINT8ARRAY && options && options.binarraybuffer;
+  var isBuffer = binarraybuffer ? Bufferish.isArrayBuffer : Bufferish.isBuffer;
+  var bin = binarraybuffer ? bin_arraybuffer : bin_buffer;
+  var usemap = HAS_MAP && options && options.usemap;
+  var map = usemap ? map_to_map : obj_to_map;
+
+  var writeType = {
+    "boolean": bool,
+    "function": nil,
+    "number": number,
+    "object": (useraw ? object_raw : object),
+    "string": _string(useraw ? raw_head_size : str_head_size),
+    "symbol": nil,
+    "undefined": nil
+  };
+
+  return writeType;
+
+  // false -- 0xc2
+  // true -- 0xc3
+  function bool(encoder, value) {
+    var type = value ? 0xc3 : 0xc2;
+    token[type](encoder, value);
+  }
+
+  function number(encoder, value) {
+    var ivalue = value | 0;
+    var type;
+    if (value !== ivalue) {
+      // float 64 -- 0xcb
+      type = 0xcb;
+      token[type](encoder, value);
+      return;
+    } else if (-0x20 <= ivalue && ivalue <= 0x7F) {
+      // positive fixint -- 0x00 - 0x7f
+      // negative fixint -- 0xe0 - 0xff
+      type = ivalue & 0xFF;
+    } else if (0 <= ivalue) {
+      // uint 8 -- 0xcc
+      // uint 16 -- 0xcd
+      // uint 32 -- 0xce
+      type = (ivalue <= 0xFF) ? 0xcc : (ivalue <= 0xFFFF) ? 0xcd : 0xce;
+    } else {
+      // int 8 -- 0xd0
+      // int 16 -- 0xd1
+      // int 32 -- 0xd2
+      type = (-0x80 <= ivalue) ? 0xd0 : (-0x8000 <= ivalue) ? 0xd1 : 0xd2;
+    }
+    token[type](encoder, ivalue);
+  }
+
+  // uint 64 -- 0xcf
+  function uint64(encoder, value) {
+    var type = 0xcf;
+    token[type](encoder, value.toArray());
+  }
+
+  // int 64 -- 0xd3
+  function int64(encoder, value) {
+    var type = 0xd3;
+    token[type](encoder, value.toArray());
+  }
+
+  // str 8 -- 0xd9
+  // str 16 -- 0xda
+  // str 32 -- 0xdb
+  // fixstr -- 0xa0 - 0xbf
+  function str_head_size(length) {
+    return (length < 32) ? 1 : (length <= 0xFF) ? 2 : (length <= 0xFFFF) ? 3 : 5;
+  }
+
+  // raw 16 -- 0xda
+  // raw 32 -- 0xdb
+  // fixraw -- 0xa0 - 0xbf
+  function raw_head_size(length) {
+    return (length < 32) ? 1 : (length <= 0xFFFF) ? 3 : 5;
+  }
+
+  function _string(head_size) {
+    return string;
+
+    function string(encoder, value) {
+      // prepare buffer
+      var length = value.length;
+      var maxsize = 5 + length * 3;
+      encoder.offset = encoder.reserve(maxsize);
+      var buffer = encoder.buffer;
+
+      // expected header size
+      var expected = head_size(length);
+
+      // expected start point
+      var start = encoder.offset + expected;
+
+      // write string
+      length = BufferProto.write.call(buffer, value, start);
+
+      // actual header size
+      var actual = head_size(length);
+
+      // move content when needed
+      if (expected !== actual) {
+        var targetStart = start + actual - expected;
+        var end = start + length;
+        BufferProto.copy.call(buffer, buffer, targetStart, start, end);
+      }
+
+      // write header
+      var type = (actual === 1) ? (0xa0 + length) : (actual <= 3) ? (0xd7 + actual) : 0xdb;
+      token[type](encoder, length);
+
+      // move cursor
+      encoder.offset += length;
+    }
+  }
+
+  function object(encoder, value) {
+    // null
+    if (value === null) return nil(encoder, value);
+
+    // Buffer
+    if (isBuffer(value)) return bin(encoder, value);
+
+    // Array
+    if (IS_ARRAY(value)) return array(encoder, value);
+
+    // int64-buffer objects
+    if (Uint64BE.isUint64BE(value)) return uint64(encoder, value);
+    if (Int64BE.isInt64BE(value)) return int64(encoder, value);
+
+    // ext formats
+    var packer = encoder.codec.getExtPacker(value);
+    if (packer) value = packer(value);
+    if (value instanceof ExtBuffer) return ext(encoder, value);
+
+    // plain old Objects or Map
+    map(encoder, value);
+  }
+
+  function object_raw(encoder, value) {
+    // Buffer
+    if (isBuffer(value)) return raw(encoder, value);
+
+    // others
+    object(encoder, value);
+  }
+
+  // nil -- 0xc0
+  function nil(encoder, value) {
+    var type = 0xc0;
+    token[type](encoder, value);
+  }
+
+  // fixarray -- 0x90 - 0x9f
+  // array 16 -- 0xdc
+  // array 32 -- 0xdd
+  function array(encoder, value) {
+    var length = value.length;
+    var type = (length < 16) ? (0x90 + length) : (length <= 0xFFFF) ? 0xdc : 0xdd;
+    token[type](encoder, length);
+
+    var encode = encoder.codec.encode;
+    for (var i = 0; i < length; i++) {
+      encode(encoder, value[i]);
+    }
+  }
+
+  // bin 8 -- 0xc4
+  // bin 16 -- 0xc5
+  // bin 32 -- 0xc6
+  function bin_buffer(encoder, value) {
+    var length = value.length;
+    var type = (length < 0xFF) ? 0xc4 : (length <= 0xFFFF) ? 0xc5 : 0xc6;
+    token[type](encoder, length);
+    encoder.send(value);
+  }
+
+  function bin_arraybuffer(encoder, value) {
+    bin_buffer(encoder, new Uint8Array(value));
+  }
+
+  // fixext 1 -- 0xd4
+  // fixext 2 -- 0xd5
+  // fixext 4 -- 0xd6
+  // fixext 8 -- 0xd7
+  // fixext 16 -- 0xd8
+  // ext 8 -- 0xc7
+  // ext 16 -- 0xc8
+  // ext 32 -- 0xc9
+  function ext(encoder, value) {
+    var buffer = value.buffer;
+    var length = buffer.length;
+    var type = extmap[length] || ((length < 0xFF) ? 0xc7 : (length <= 0xFFFF) ? 0xc8 : 0xc9);
+    token[type](encoder, length);
+    uint8[value.type](encoder);
+    encoder.send(buffer);
+  }
+
+  // fixmap -- 0x80 - 0x8f
+  // map 16 -- 0xde
+  // map 32 -- 0xdf
+  function obj_to_map(encoder, value) {
+    var keys = Object.keys(value);
+    var length = keys.length;
+    var type = (length < 16) ? (0x80 + length) : (length <= 0xFFFF) ? 0xde : 0xdf;
+    token[type](encoder, length);
+
+    var encode = encoder.codec.encode;
+    keys.forEach(function(key) {
+      encode(encoder, key);
+      encode(encoder, value[key]);
+    });
+  }
+
+  // fixmap -- 0x80 - 0x8f
+  // map 16 -- 0xde
+  // map 32 -- 0xdf
+  function map_to_map(encoder, value) {
+    if (!(value instanceof Map)) return obj_to_map(encoder, value);
+
+    var length = value.size;
+    var type = (length < 16) ? (0x80 + length) : (length <= 0xFFFF) ? 0xde : 0xdf;
+    token[type](encoder, length);
+
+    var encode = encoder.codec.encode;
+    value.forEach(function(val, key, m) {
+      encode(encoder, key);
+      encode(encoder, val);
+    });
+  }
+
+  // raw 16 -- 0xda
+  // raw 32 -- 0xdb
+  // fixraw -- 0xa0 - 0xbf
+  function raw(encoder, value) {
+    var length = value.length;
+    var type = (length < 32) ? (0xa0 + length) : (length <= 0xFFFF) ? 0xda : 0xdb;
+    token[type](encoder, length);
+    encoder.send(value);
+  }
+}
+
+
+/***/ }),
+
+/***/ "../node_modules/msgpack-lite/lib/write-uint8.js":
+/*!*******************************************************!*\
+  !*** ../node_modules/msgpack-lite/lib/write-uint8.js ***!
+  \*******************************************************/
+/***/ ((__unused_webpack_module, exports) => {
+
+// write-unit8.js
+
+var constant = exports.uint8 = new Array(256);
+
+for (var i = 0x00; i <= 0xFF; i++) {
+  constant[i] = write0(i);
+}
+
+function write0(type) {
+  return function(encoder) {
+    var offset = encoder.reserve(1);
+    encoder.buffer[offset] = type;
+  };
+}
+
+
 /***/ })
 
 /******/ 	});
@@ -4186,7 +6651,7 @@ function EventLite() {
 /******/ 		};
 /******/ 	
 /******/ 		// Execute the module function
-/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 		__webpack_modules__[moduleId].call(module.exports, module, module.exports, __webpack_require__);
 /******/ 	
 /******/ 		// Return the exports of the module
 /******/ 		return module.exports;
