@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           Krunker Junker
-// @author         The Gaming Gurus
+// @author         SkidLamer
 // @description    Junk in Your Krunk Guaranteed
 // @version        1.1
 // @license        gpl-3.0
