@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           Sploit
-// @author         The Gaming Gurus
+// @author         Divide
 // @description    Powerful Krunker mod
 // @version        1.6.5
 // @license        gpl-3.0
