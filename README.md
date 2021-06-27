@@ -13,13 +13,3 @@ To use these userscripts, you will need [Tampermonkey](https://www.tampermonkey.
 [Junker](https://y9x.github.io/userscripts/junker.user.js)
 
 [Dogeware](https://y9x.github.io/userscripts/dogeware.user.js)
-
-### IDKR Scripts:
-
-[Skidfest](https://y9x.github.io/userscripts/skidfest.idkr.js)
-
-[Sploit](https://y9x.github.io/userscripts/sploit.idkr.js)
-
-[Junker](https://y9x.github.io/userscripts/junker.idkr.js)
-
-[Dogeware](https://y9x.github.io/userscripts/dogeware.idkr.js)
