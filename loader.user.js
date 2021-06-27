@@ -10,7 +10,6 @@
 // @copyright         2021, The Gaming Guru's™
 // @run-at            document-start
 // @grant             none
-
 // @noframes
 // ==/UserScript==
 
