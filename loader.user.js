@@ -7,7 +7,7 @@
 // @icon              https://i.imgur.com/fo8XPb6.png
 // @include           /^https?\:\/\/krunker\..*\/.*$/
 // @include           /^https?\:\/\/.*.browserfps\..*\/.*$/
-// @copyright         2021, The Gaming Guru's™
+// @copyright         2021, The Gaming Gurus™
 // @run-at            document-start
 // @grant             none
 // @noframes
