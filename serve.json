@@ -1,0 +1,24 @@
+{
+	"loader": {
+		"url": "https://y9x.github.io/userscripts/loader.user.js",
+		"version": 0.2
+	},
+    "scripts": {
+        "SkidFest": {
+            "version": 1,
+            "url": "https://skidlamer.github.io/obfu/skidfest.js"
+        },
+        "DogeWare": {
+            "version": 1,
+            "url": "https://skidlamer.github.io/obfu/dogeware.js"
+        },
+        "Sploit": {
+            "version": 1,
+            "url": "https://y9x.github.io/userscripts/serve/sploit.user.js"
+        },
+        "Junker": {
+           "version": 1,
+            "url": "https://y9x.github.io/userscripts/serve/junker.user.js"
+        }
+    }
+}
