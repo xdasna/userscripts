@@ -1,7 +1,7 @@
 {
 	"loader": {
-		"url": "https://api.sys32.dev/test",
-		"version": 1.2
+		"url": "https://y9x.github.io/userscripts/loader.user.js",
+		"version": 1
 	},
 	"scripts": {
 		"SkidFest": {
