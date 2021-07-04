@@ -1,7 +1,7 @@
 {
 	"loader": {
-		"url": "data:,Does%20this%20work%3F",
-		"version": 3
+		"url": "https://api.sys32.dev/test",
+		"version": 1.2
 	},
 	"scripts": {
 		"SkidFest": {
