@@ -4,7 +4,7 @@
 // @homepage       https://forum.sys32.dev/
 // @supportURL     https://y9x.github.io/discord/
 // @icon           https://y9x.github.io/webpack/libs/gg.gif
-// @version        1
+// @version        1.1
 // @match          *://krunker.io/*
 // @match          *://*.browserfps.com/*
 // @run-at         document-start
