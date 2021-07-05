@@ -1,7 +1,7 @@
 {
 	"loader": {
 		"url": "https://y9x.github.io/userscripts/loader.user.js",
-		"version": 1.1
+		"version": 1.2
 	},
 	"scripts": {
 		"SkidFest": {
