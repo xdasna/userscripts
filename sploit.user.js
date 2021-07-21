@@ -10,10 +10,10 @@
 // @grant          GM_getValue
 // @match          https://krunker.io/*
 // @match          https://*.browserfps.com/*
-// @extracted      Fri, 09 Jul 2021 08:00:10 GMT
+// @extracted      Fri, 10 Jul 2021 08:00:10 GMT
 // @run-at         document-start
 // @noframes
 // ==/UserScript==
 
-alert('The old Sploit loader is outdated. You will be redirected to the new Krunker Cheat Loader.');
+alert('The Sploit loader is outdated. You will be redirected to the new Krunker Cheat Loader.');
 location.assign('http://y9x.github.io/userscripts/loader.user.js');
