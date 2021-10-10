@@ -5,7 +5,7 @@
 	},
 	"client": {
 		"url": "https://github.com/y9x/clientpp/releases",
-		"version": 0.02
+		"version": 0.03
 	},
 	"scripts": {
 		"Sploit": {
