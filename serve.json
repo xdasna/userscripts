@@ -5,8 +5,8 @@
 	},
 	"client": {
 		"url": "https://github.com/6ct/client/releases",
-		"version": 0.08
-	}
+		"version": 0.1
+	},
 	"scripts": {
 		"Sploit": {
 			"version": 1.091,
