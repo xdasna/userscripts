@@ -4,9 +4,9 @@
 		"version": 1.22
 	},
 	"client": {
-		"url": "https://github.com/y9x/clientpp/releases",
-		"version": 0.06
-	},
+		"url": "https://github.com/6ct/client/releases",
+		"version": 0.1
+	}
 	"scripts": {
 		"Sploit": {
 			"version": 1.091,
