@@ -7,6 +7,10 @@
 		"url": "https://github.com/6ct/client/releases",
 		"version": 0.1
 	},
+	"lext": {
+		"url": "https://github.com/y9x/lext/archive/refs/tags/0.1.zip",
+		"version": 0.1
+	},
 	"scripts": {
 		"Sploit": {
 			"version": 1.091,
