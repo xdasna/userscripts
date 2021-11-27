@@ -13,11 +13,11 @@
 	},
 	"scripts": {
 		"Sploit": {
-			"version": 1.093,
+			"version": 1.094,
 			"url": "https://y9x.github.io/userscripts/serve/sploit.user.js"
 		},
 		"Junker": {
-			"version": 1.093,
+			"version": 1.094,
 			"url": "https://y9x.github.io/userscripts/serve/junker.user.js"
 		},
 		"SkidFest": {
