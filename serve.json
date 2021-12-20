@@ -19,14 +19,6 @@
 		"Junker": {
 			"version": 1.096,
 			"url": "https://y9x.github.io/userscripts/serve/junker.user.js"
-		},
-		"SkidFest": {
-			"version": 1.001,
-			"url": "https://y9x.github.io/userscripts/serve/skidfest.user.js"
-		},
-		"Dogeware": {
-			"version": 1.001,
-			"url": "https://y9x.github.io/userscripts/serve/dogeware.user.js"
 		}
 	}
 }
