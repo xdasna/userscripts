@@ -1,7 +1,7 @@
 {
 	"loader": {
 		"url": "https://y9x.github.io/userscripts/loader.user.js",
-		"version": 1.22
+		"version": 1.24
 	},
 	"client": {
 		"url": "https://github.com/6ct/client/releases",
@@ -13,11 +13,11 @@
 	},
 	"scripts": {
 		"Sploit": {
-			"version": 1.0965,
+			"version": 1.0966,
 			"url": "https://y9x.github.io/userscripts/serve/sploit.user.js"
 		},
 		"Junker": {
-			"version": 1.0965,
+			"version": 1.0966,
 			"url": "https://y9x.github.io/userscripts/serve/junker.user.js"
 		}
 	}
