@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Krunker Cheat Loader
-// @namespace    https://forum.sys32.dev/
-// @icon         https://y9x.github.io/webpack/libs/gg.gif
+// @name         Kyro Cheat Loader
+// @namespace    https://akiooware.tk
+// @icon         https://media.discordapp.net/attachments/941454328101761084/999405899108061204/nigga.gif
 // @license      gpl-3.0
 // @version      1.24
 // @match        https://krunker.io/*
